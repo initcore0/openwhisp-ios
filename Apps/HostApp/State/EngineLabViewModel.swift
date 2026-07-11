@@ -34,9 +34,24 @@ final class EngineLabViewModel: ObservableObject {
     @Published private(set) var compareApple: LabRun?
     @Published private(set) var compareVerdict: LabVerdict?
 
+    /// A run that is blocked on a model download the user hasn't approved yet.
+    /// Model downloads must be explicit (privacy screen: "user-initiated") — the
+    /// Lab never silently pulls hundreds of MB behind a spinner.
+    struct PendingDownload: Identifiable {
+        let fixtureID: String
+        let selection: LabEngineSelection
+        let isCompare: Bool
+        var id: String { fixtureID + "|" + selection.displayName }
+    }
+    @Published private(set) var pendingDownload: PendingDownload?
+    /// A non-blocking message shown when a run could not start (e.g. speech
+    /// authorization denied) — `status` only renders while `isRunning`.
+    @Published private(set) var notice: String?
+
     private let settings: AppSettings
     private let store: LabRunStore
     private let runner = LabRunner()
+    private let provisioning = IOSModelProvisioning()
 
     init(settings: AppSettings, store: LabRunStore) {
         self.settings = settings
@@ -99,9 +114,27 @@ final class EngineLabViewModel: ObservableObject {
         _ bundled: BundledFixture,
         selection: LabEngineSelection,
         langOverride: String?,
-        isCompare: Bool
+        isCompare: Bool,
+        downloadApproved: Bool = false
     ) async {
         guard !isRunning else { return }
+        notice = nil
+
+        // Gate 1: never download a model silently. Stop and ask.
+        if !downloadApproved && !isModelStaged(selection) {
+            pendingDownload = PendingDownload(fixtureID: bundled.id, selection: selection, isCompare: false)
+            return
+        }
+        // Gate 2: the Apple baseline requires speech-recognition authorization
+        // BEFORE any recognition task (SFSpeechRecognizer rejects otherwise).
+        if case .appleBaseline = selection {
+            let auth = await AppleSpeechBaselineEngine.requestAuthorization()
+            guard auth == .authorized else {
+                notice = "Speech recognition isn't authorized — enable it in Settings › Privacy & Security to run the Apple baseline."
+                return
+            }
+        }
+
         isRunning = true
         status = "Running \(selection.displayName) on \(bundled.fixture.title)…"
         defer { isRunning = false; status = "" }
@@ -135,8 +168,16 @@ final class EngineLabViewModel: ObservableObject {
     /// Run the SAME fixture through the selected OpenWhisp engine AND the Apple
     /// on-device baseline, then compute the verdict. This is the product's Goal-#1
     /// claim rendered as a single sentence.
-    func compare(_ bundled: BundledFixture) async {
+    func compare(_ bundled: BundledFixture, downloadApproved: Bool = false) async {
         guard !isRunning else { return }
+        notice = nil
+
+        // Never download a model silently (privacy screen: "user-initiated").
+        if !downloadApproved && !isModelStaged(currentSelection) {
+            pendingDownload = PendingDownload(fixtureID: bundled.id, selection: currentSelection, isCompare: true)
+            return
+        }
+
         isRunning = true
         defer { isRunning = false; status = "" }
 
@@ -150,6 +191,20 @@ final class EngineLabViewModel: ObservableObject {
         )
         store.record(ow)
 
+        // SFSpeechRecognizer rejects recognition with authorization .notDetermined/
+        // .denied — request it first, and report a permission gap AS a permission
+        // gap, never as an Apple coverage gap (the verdict sentence is the claim).
+        status = "Checking speech-recognition authorization…"
+        let auth = await AppleSpeechBaselineEngine.requestAuthorization()
+        guard auth == .authorized else {
+            compareOpenWhisp = ow
+            compareApple = nil
+            compareVerdict = LabVerdict.decide(openWhispWER: ow.wer, appleWER: nil, baselineReason: .notAuthorized)
+            lastRun = ow
+            lastDiff = diff(for: bundled, hypothesis: ow.hypothesis)
+            return
+        }
+
         status = "Running Apple baseline (\(appleLocale))…"
         let apple = await runner.run(
             fixture: bundled.fixture, wavURL: bundled.wavURL, reference: bundled.reference,
@@ -160,13 +215,60 @@ final class EngineLabViewModel: ObservableObject {
 
         compareOpenWhisp = ow
         compareApple = apple
-        // Apple WER is nil when its run errored (no on-device model for the locale).
         let appleWER = apple.error == nil ? apple.wer : nil
-        compareVerdict = LabVerdict.decide(openWhispWER: ow.wer, appleWER: appleWER)
+        compareVerdict = LabVerdict.decide(
+            openWhispWER: ow.wer,
+            appleWER: appleWER,
+            baselineReason: Self.baselineReason(forAppleError: apple.error)
+        )
         lastRun = ow
-        lastDiff = bundled.reference.isEmpty && !bundled.fixture.isSilence
+        lastDiff = diff(for: bundled, hypothesis: ow.hypothesis)
+    }
+
+    /// Approve the download the last blocked run asked for, and re-run it.
+    func confirmPendingDownload() async {
+        guard let pending = pendingDownload,
+              let bundled = fixtures.first(where: { $0.id == pending.fixtureID }) else {
+            pendingDownload = nil
+            return
+        }
+        pendingDownload = nil
+        if pending.isCompare {
+            await compare(bundled, downloadApproved: true)
+        } else {
+            await run(bundled, selection: pending.selection, langOverride: nil,
+                      isCompare: false, downloadApproved: true)
+        }
+    }
+
+    func dismissPendingDownload() { pendingDownload = nil }
+
+    /// Whether the model behind a selection is already staged on disk (the Apple
+    /// baseline has nothing to download).
+    private func isModelStaged(_ selection: LabEngineSelection) -> Bool {
+        switch selection {
+        case .appleBaseline:
+            return true
+        case .whisperKit(let modelID):
+            return provisioning.staged.contains { $0.id.rawValue == modelID }
+        case .parakeet(let variantID):
+            return provisioning.staged.contains { $0.id.rawValue == variantID }
+        }
+    }
+
+    /// Classify why an Apple baseline run produced no WER, from its error text.
+    private static func baselineReason(forAppleError error: String?) -> LabVerdict.BaselineUnavailableReason {
+        guard let error else { return .noOnDeviceModel }
+        if error.contains("no on-device model") || error.contains("No Apple Speech recognizer") {
+            return .noOnDeviceModel
+        }
+        return .runFailed(error)
+    }
+
+    private func diff(for bundled: BundledFixture, hypothesis: String) -> WERResult? {
+        bundled.reference.isEmpty && !bundled.fixture.isSilence
             ? nil
-            : WordErrorRate.score(reference: bundled.reference, hypothesis: ow.hypothesis)
+            : WordErrorRate.score(reference: bundled.reference, hypothesis: hypothesis)
     }
 
     /// Language hint for a Lab run: fixed-language fixtures pin their language; the

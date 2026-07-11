@@ -102,6 +102,9 @@ final class CaptureViewModel: ObservableObject {
         coordinator.onStateChange = { [weak self] state in
             Task { @MainActor in self?.apply(state) }
         }
+        coordinator.onRawFinal = { [weak self] raw in
+            self?.lastRawFinal = raw
+        }
         coordinator.onPartial = { [weak self] text in
             Task { @MainActor in self?.partial = text }
         }

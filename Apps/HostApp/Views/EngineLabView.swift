@@ -54,6 +54,35 @@ struct EngineLabView: View {
                 resultSection(run: run, diff: vm.lastDiff)
             }
 
+            if let pending = vm.pendingDownload {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Model not downloaded", systemImage: "arrow.down.circle")
+                            .font(.subheadline.bold())
+                        Text("\(pending.selection.displayName) needs its model first — a one-time download (up to several hundred MB) from the model host. Downloads only ever start when you approve them; the first run can take minutes.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button("Download & run") { Task { await vm.confirmPendingDownload() } }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            Button("Cancel", role: .cancel) { vm.dismissPendingDownload() }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            if let notice = vm.notice {
+                Section {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if let verdict = vm.compareVerdict {
                 verdictSection(verdict: verdict, ow: vm.compareOpenWhisp, apple: vm.compareApple)
             }
@@ -261,12 +290,13 @@ struct DiffView: View {
             Text(token.hypothesis ?? "")
                 .font(.callout)
         case .substitute:
-            Text(token.hypothesis ?? "")
+            // Show hypothesis AND expected inline — .help() is a macOS tooltip
+            // and renders nothing on iOS, which would hide the reference word.
+            (Text(token.hypothesis ?? "").strikethrough()
+                + Text(" \(token.reference ?? "")").foregroundStyle(.secondary))
                 .font(.callout)
                 .padding(.horizontal, 3)
                 .background(.orange.opacity(0.3), in: RoundedRectangle(cornerRadius: 4))
-                .strikethrough(false)
-                .help("expected: \(token.reference ?? "")")
         case .insert:
             Text(token.hypothesis ?? "")
                 .font(.callout)

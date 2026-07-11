@@ -20,6 +20,19 @@ public struct LabVerdict: Equatable, Sendable {
         case baselineUnavailable
     }
 
+    /// WHY the Apple baseline produced no WER. The verdict sentence is the
+    /// product's Goal-#1 claim, so it must state the true reason — "Apple has no
+    /// model" when permission was simply denied would be a lie.
+    public enum BaselineUnavailableReason: Equatable, Sendable {
+        /// Apple ships no on-device model for this locale (the multilingual
+        /// coverage-gap story — a legitimate OpenWhisp advantage).
+        case noOnDeviceModel
+        /// Speech-recognition permission is not granted on this device.
+        case notAuthorized
+        /// The recognizer exists but the run failed.
+        case runFailed(String)
+    }
+
     public let winner: Winner
     /// OpenWhisp's WER (fraction), nil if that run errored/has no reference.
     public let openWhispWER: Double?
@@ -36,10 +49,14 @@ public struct LabVerdict: Equatable, Sendable {
     }
 
     /// Decide the verdict from two WER fractions. `appleWER == nil` means the
-    /// baseline could not run on-device for the locale (unavailable), which the
-    /// product frames as an OpenWhisp advantage but reports honestly rather than
-    /// claiming a bogus 0%.
-    public static func decide(openWhispWER: Double?, appleWER: Double?) -> LabVerdict {
+    /// baseline produced no score; `baselineReason` says WHY, and the summary
+    /// states that reason honestly rather than claiming a coverage gap (or a
+    /// bogus 0%) when the truth is a permission denial or a plain failure.
+    public static func decide(
+        openWhispWER: Double?,
+        appleWER: Double?,
+        baselineReason: BaselineUnavailableReason = .noOnDeviceModel
+    ) -> LabVerdict {
         func pct(_ w: Double?) -> String { w.map { String(format: "%.1f%%", $0 * 100) } ?? "—" }
 
         // OpenWhisp's own run failed → no claim.
@@ -53,11 +70,20 @@ public struct LabVerdict: Equatable, Sendable {
         }
 
         guard let ap = appleWER else {
+            let reasonText: String
+            switch baselineReason {
+            case .noOnDeviceModel:
+                reasonText = "Apple has no on-device model for this language, so it can't run at all."
+            case .notAuthorized:
+                reasonText = "the Apple baseline didn't run — speech recognition isn't authorized on this device (Settings › Privacy & Security › Speech Recognition)."
+            case .runFailed(let message):
+                reasonText = "the Apple baseline failed to run: \(message)"
+            }
             return LabVerdict(
                 winner: .baselineUnavailable,
                 openWhispWER: ow,
                 appleWER: nil,
-                summary: "OpenWhisp WER \(pct(ow)) — Apple has no on-device model for this language, so it can't run at all."
+                summary: "OpenWhisp WER \(pct(ow)) — \(reasonText)"
             )
         }
 

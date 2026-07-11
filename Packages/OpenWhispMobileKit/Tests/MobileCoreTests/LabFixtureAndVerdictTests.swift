@@ -48,6 +48,24 @@ final class LabVerdictTests: XCTestCase {
         XCTAssertTrue(v.summary.contains("about even."))
     }
 
+    func testBaselineNotAuthorizedNamesThePermissionGap() {
+        let v = LabVerdict.decide(openWhispWER: 0.05, appleWER: nil, baselineReason: .notAuthorized)
+        XCTAssertEqual(v.winner, .baselineUnavailable)
+        XCTAssertTrue(v.summary.contains("isn't authorized"),
+                      "a permission denial must be reported as one: \(v.summary)")
+        XCTAssertFalse(v.summary.contains("no on-device model"),
+                       "a permission denial must NOT be framed as an Apple coverage gap: \(v.summary)")
+    }
+
+    func testBaselineRunFailedCarriesTheError() {
+        let v = LabVerdict.decide(openWhispWER: 0.05, appleWER: nil,
+                                  baselineReason: .runFailed("recognizer timed out"))
+        XCTAssertEqual(v.winner, .baselineUnavailable)
+        XCTAssertTrue(v.summary.contains("failed to run"), v.summary)
+        XCTAssertTrue(v.summary.contains("recognizer timed out"), v.summary)
+        XCTAssertFalse(v.summary.contains("no on-device model"), v.summary)
+    }
+
     func testBaselineUnavailableIsHonest() {
         let v = LabVerdict.decide(openWhispWER: 0.05, appleWER: nil)
         XCTAssertEqual(v.winner, .baselineUnavailable)
