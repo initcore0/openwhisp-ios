@@ -43,6 +43,13 @@ environment variable; simulator builds succeed unsigned (no team needed). CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the package tests
 and the unsigned simulator build on every push/PR.
 
+> **Device builds:** the generated project carries the literal
+> `${DEVELOPMENT_TEAM}` build setting, so Xcode only resolves a team when it
+> inherits the env var — launch it via `DEVELOPMENT_TEAM=XXXXXXXXXX xed .`
+> (or export it in your shell profile). Opening Xcode from the Dock leaves the
+> team empty and automatic signing for device runs will fail; simulator runs
+> are unaffected.
+
 The design docs remain the source of truth:
 
 | Doc | What it is |

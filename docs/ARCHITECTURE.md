@@ -254,7 +254,12 @@ public enum CaptureState: Equatable, Sendable {
 public struct CaptureFlow {
     public enum Event { case trigger(CaptureTrigger), audioReady, level(Float),
                         silenceStopped, manualStop, cancel, engineFinal(String),
-                        engineError(String), interrupted }
+                        cleaned(text: String), engineError(String), interrupted }
+    // Contract: engineFinal emits ONLY .clean(raw:); the driver runs
+    // TranscriptCleaner and feeds the result back as .cleaned, the sole path to
+    // a .publish effect — raw engine text can never reach publish. didPublish(id:)
+    // returns [.updateActivity(.published(id)), .endActivity] so activity
+    // teardown is part of the tested contract, not a driver convention.
     public enum Effect { case startAudio, stopAudio, startEngine(language: String),
                          clean(raw: String), publish(text: String, source: PendingTranscript.Source),
                          updateActivity(CaptureState), endActivity, abort(CaptureFailure) }

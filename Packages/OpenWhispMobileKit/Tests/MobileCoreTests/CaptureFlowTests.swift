@@ -29,17 +29,38 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertEqual(flow.state, .transcribing)
         XCTAssertEqual(effects, [.stopAudio, .updateActivity(.transcribing)])
 
-        // engineFinal → clean + publish (inApp source).
+        // engineFinal → clean ONLY (raw text can never reach publish).
         effects = flow.handle(.engineFinal("hello world"))
-        XCTAssertEqual(effects, [
-            .clean(raw: "hello world"),
-            .publish(text: "hello world", source: .inApp),
-        ])
+        XCTAssertEqual(effects, [.clean(raw: "hello world")])
 
-        // driver reports the store write.
+        // cleaned → publish carries the cleaned text (inApp source).
+        effects = flow.handle(.cleaned(text: "Hello world."))
+        XCTAssertEqual(effects, [.publish(text: "Hello world.", source: .inApp)])
+
+        // driver reports the store write; activity teardown is in the contract.
         let id = UUID()
-        flow.didPublish(id: id)
+        effects = flow.didPublish(id: id)
         XCTAssertEqual(flow.state, .published(id))
+        XCTAssertEqual(effects, [.updateActivity(.published(id)), .endActivity])
+    }
+
+    /// Regression guard for the reviewed wiring hazard: a driver that executes
+    /// the effect list literally must be unable to publish uncleaned text.
+    func testRawEngineTextCanNeverReachPublish() {
+        var flow = CaptureFlow()
+        _ = flow.handle(.trigger(.inApp))
+        _ = flow.handle(.audioReady)
+        _ = flow.handle(.silenceStopped)
+
+        let finalEffects = flow.handle(.engineFinal("raw uncleaned text"))
+        for effect in finalEffects {
+            if case .publish = effect {
+                XCTFail("engineFinal must not emit .publish — got \(effect)")
+            }
+        }
+
+        let publishEffects = flow.handle(.cleaned(text: "Raw, cleaned text."))
+        XCTAssertEqual(publishEffects, [.publish(text: "Raw, cleaned text.", source: .inApp)])
     }
 
     func testManualStopAlsoTranscribes() {
@@ -58,8 +79,9 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.trigger(.appIntent))
         _ = flow.handle(.audioReady)
         _ = flow.handle(.silenceStopped)
-        let effects = flow.handle(.engineFinal("hi"))
-        XCTAssertEqual(effects, [.clean(raw: "hi"), .publish(text: "hi", source: .appIntent)])
+        _ = flow.handle(.engineFinal("hi"))
+        let effects = flow.handle(.cleaned(text: "Hi."))
+        XCTAssertEqual(effects, [.publish(text: "Hi.", source: .appIntent)])
     }
 
     func testKeyboardHandoffTriggerStampsAppSwitchSource() {
@@ -67,8 +89,9 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.trigger(.keyboardHandoff))
         _ = flow.handle(.audioReady)
         _ = flow.handle(.manualStop)
-        let effects = flow.handle(.engineFinal("hi"))
-        XCTAssertEqual(effects, [.clean(raw: "hi"), .publish(text: "hi", source: .appSwitch)])
+        _ = flow.handle(.engineFinal("hi"))
+        let effects = flow.handle(.cleaned(text: "Hi."))
+        XCTAssertEqual(effects, [.publish(text: "Hi.", source: .appSwitch)])
     }
 
     // MARK: Cancel paths
@@ -212,7 +235,7 @@ final class CaptureFlowTests: XCTestCase {
         let events: [CaptureFlow.Event] = [
             .trigger(.inApp), .trigger(.appIntent), .trigger(.keyboardHandoff),
             .audioReady, .level(0.5), .silenceStopped, .manualStop, .cancel,
-            .engineFinal("t"), .engineError("e"), .interrupted,
+            .engineFinal("t"), .cleaned(text: "c"), .engineError("e"), .interrupted,
         ]
         for state in states {
             for event in events {
@@ -227,7 +250,8 @@ final class CaptureFlowTests: XCTestCase {
 
     func testStrayEventsInIdleAreIgnored() {
         for event in [CaptureFlow.Event.audioReady, .level(0.3), .silenceStopped,
-                      .manualStop, .engineFinal("x"), .engineError("y"), .interrupted] {
+                      .manualStop, .engineFinal("x"), .cleaned(text: "c"),
+                      .engineError("y"), .interrupted] {
             var flow = CaptureFlow()
             let effects = flow.handle(event)
             XCTAssertEqual(flow.state, .idle)

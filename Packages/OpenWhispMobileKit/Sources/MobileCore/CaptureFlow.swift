@@ -56,6 +56,10 @@ public struct CaptureFlow: Equatable, Sendable {
         case cancel
         /// The engine produced its final transcript text.
         case engineFinal(String)
+        /// The driver finished running `TranscriptCleaner` on the raw text (the
+        /// response to a `.clean` effect). Publishing only ever happens from
+        /// here — raw engine text can never reach a `.publish` effect.
+        case cleaned(text: String)
         /// The engine errored.
         case engineError(String)
         /// The audio session was interrupted (call, Siri, route loss).
@@ -139,7 +143,8 @@ public struct CaptureFlow: Equatable, Sendable {
              (.preparing, .level),
              (.preparing, .silenceStopped),
              (.preparing, .manualStop),
-             (.preparing, .engineFinal):
+             (.preparing, .engineFinal),
+             (.preparing, .cleaned):
             // Premature or duplicate signals before audio is live — ignore.
             return []
 
@@ -164,20 +169,23 @@ public struct CaptureFlow: Equatable, Sendable {
 
         case (.listening, .trigger),
              (.listening, .audioReady),
-             (.listening, .engineFinal):
+             (.listening, .engineFinal),
+             (.listening, .cleaned):
             // Already listening; a second trigger/audioReady is redundant, and a
             // final can't arrive before we stop the audio in this design.
             return []
 
         // MARK: transcribing
         case (.transcribing, .engineFinal(let raw)):
-            // The final text comes in raw; the driver cleans, then feeds the
-            // cleaned text back via a subsequent publish path. We emit both the
-            // clean request and (optimistically) the publish so the driver has a
-            // single ordered effect list. The driver substitutes cleaned text
-            // into `publish`.
+            // Raw text goes out ONLY as a clean request. The driver runs
+            // TranscriptCleaner and feeds the result back as `.cleaned`, which
+            // is the sole path to a `.publish` effect — a driver that executes
+            // effects literally can never ship uncleaned text.
+            return [.clean(raw: raw)]
+
+        case (.transcribing, .cleaned(let text)):
             let source = Self.source(for: activeTrigger)
-            return [.clean(raw: raw), .publish(text: raw, source: source)]
+            return [.publish(text: text, source: source)]
 
         case (.transcribing, .cancel):
             return abortToIdle(stopAudio: false, failure: nil)
@@ -229,13 +237,17 @@ public struct CaptureFlow: Equatable, Sendable {
         }
     }
 
-    /// Records a successful publish. The driver calls this once it has cleaned
-    /// text and actually written the `PendingTranscript`, so the machine's state
-    /// reflects reality. Kept separate from `handle` because the id is only known
-    /// after the store write.
-    public mutating func didPublish(id: PendingTranscript.ID) {
+    /// Records a successful publish. The driver calls this once it has actually
+    /// written the `PendingTranscript`, so the machine's state reflects reality.
+    /// Kept separate from `handle` because the id is only known after the store
+    /// write. Returns the Live Activity effects (show "published", then end) so
+    /// the activity teardown is part of the tested contract, not a driver
+    /// convention.
+    @discardableResult
+    public mutating func didPublish(id: PendingTranscript.ID) -> [Effect] {
         activeTrigger = nil
         state = .published(id)
+        return [.updateActivity(.published(id)), .endActivity]
     }
 
     /// Common teardown: stop audio (if still running), end the activity, and

@@ -124,6 +124,11 @@ targets:
         CFBundleDisplayName: OpenWhisp
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Apps/WidgetsExtension/OpenWhispWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.openwhisp.ios
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.widgets
