@@ -5,6 +5,7 @@ Apps/HostApp/OpenWhisp.entitlements
 Apps/KeyboardExtension/Info.plist
 Apps/KeyboardExtension/OpenWhispKeyboard.entitlements
 Apps/WidgetsExtension/Info.plist
+Apps/UITests/Host/Info.plist
 
 # Build products
 .build/
