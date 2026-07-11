@@ -445,8 +445,17 @@ Sync verbs handled next to the existing verb handlers. This is WP6-mac.
 Info.plist inventory: `NSMicrophoneUsageDescription` (host),
 `NSLocalNetworkUsageDescription` + `NSBonjourServices: _openwhisp._tcp` (host),
 `NSCameraUsageDescription` (QR pairing), `RequestsOpenAccess` (keyboard),
-`NSSupportsLiveActivities` (widgets). No speech-recognition entitlement
-(we never touch `SFSpeechRecognizer`).
+`NSSupportsLiveActivities` (widgets), and `NSSpeechRecognitionUsageDescription`
+(host). **The speech-recognition usage string exists solely for the developer
+Engine Lab** (Settings → Developer → Engine Lab), which runs Apple's
+`SFSpeechRecognizer` **as a benchmark baseline only** — forced on-device
+(`requiresOnDeviceRecognition = true`), never as a production transcription path
+(D5) and never sending dictated text to Apple. No *production* code path touches
+`SFSpeechRecognizer`; the `AppleSpeechBaselineEngine` is reachable only from the
+Lab, behind an explicit authorization request. No other speech entitlement is
+added. The Lab's benchmark WAV fixtures ship in **Debug builds only** (a
+Release-config post-build step strips them from the product) so the shipped app
+carries no fixture payload — see [ENGINE_LAB.md](ENGINE_LAB.md).
 
 ---
 

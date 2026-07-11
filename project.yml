@@ -35,6 +35,17 @@ targets:
     platform: iOS
     sources:
       - path: Apps/HostApp
+      # Engine Lab benchmark fixtures (WP3). Bundled as a folder reference under a
+      # `Fixtures/` group so the app can resolve `<name>.wav` / `<name>.txt` by
+      # `Bundle.main.url(...subdirectory: "Fixtures")`. To keep the RELEASE app size
+      # sane, the whole group is EXCLUDED from the Release config via
+      # `EXCLUDED_SOURCE_FILE_NAMES` below — so fixtures ship only in Debug builds,
+      # which is where the Engine Lab is used. (Documented in docs/ARCHITECTURE.md §7
+      # and docs/ENGINE_LAB.md.)
+      - path: fixtures/audio
+        name: Fixtures
+        type: folder
+        buildPhase: resources
     info:
       path: Apps/HostApp/Info.plist
       properties:
@@ -48,6 +59,13 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: >-
           OpenWhisp records audio on-device to transcribe your speech. Audio never leaves your phone.
+        # Apple's on-device speech recognizer is used ONLY by the developer Engine
+        # Lab (Settings → Developer → Engine Lab) to benchmark OpenWhisp's on-device
+        # engines against Apple's, on the same audio. Recognition is forced
+        # on-device (requiresOnDeviceRecognition = true); no dictated text is ever
+        # sent to Apple's servers, and no production path uses this recognizer.
+        NSSpeechRecognitionUsageDescription: >-
+          Used only by the developer Engine Lab to benchmark OpenWhisp against Apple's on-device recognizer. Runs on-device; nothing is sent to Apple.
         NSLocalNetworkUsageDescription: >-
           OpenWhisp connects to your paired Mac over your local Wi-Fi to sync your vocabulary and history. Nothing goes to the cloud.
         NSCameraUsageDescription: >-
@@ -64,6 +82,23 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios
         TARGETED_DEVICE_FAMILY: "1,2"
+    # Engine Lab fixtures ship in Debug only (to keep the RELEASE app size sane).
+    # `EXCLUDED_SOURCE_FILE_NAMES` doesn't reliably drop a folder-reference resource,
+    # so a Release-config post-build script strips the bundled `audio/` fixtures out
+    # of the product. In Debug the script is a no-op; in Release it removes them.
+    # Documented in docs/ARCHITECTURE.md §7 and docs/ENGINE_LAB.md.
+    postBuildScripts:
+      - name: Strip Engine Lab fixtures (Release only)
+        script: |
+          if [ "${CONFIGURATION}" = "Release" ]; then
+            FIX="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/audio"
+            if [ -d "$FIX" ]; then
+              echo "Release build: stripping Engine Lab fixtures at $FIX"
+              rm -rf "$FIX"
+            fi
+          else
+            echo "Debug build: keeping Engine Lab fixtures."
+          fi
     dependencies:
       - package: OpenWhispMobileKit
         product: MobileCore

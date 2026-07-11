@@ -42,6 +42,10 @@ public final class CaptureCoordinator: CaptureCoordinating {
     /// engine's `onPartial` verbatim — partials are NOT part of the publish
     /// contract (only the cleaned final is), so they bypass the state machine.
     public var onPartial: ((String) -> Void)?
+    /// The raw engine final BEFORE cleaning, fired when the `.clean` effect runs.
+    /// For history's revert-to-original data only — raw text still cannot reach a
+    /// `.publish` effect or any insertion path.
+    public var onRawFinal: ((String) -> Void)?
 
     // MARK: Collaborators
 
@@ -216,6 +220,7 @@ public final class CaptureCoordinator: CaptureCoordinating {
         case .clean(let raw):
             // Run TranscriptCleaner (with Vocabulary) — the ONLY producer of the
             // text that can reach a publish. Feed the cleaned result straight back.
+            onRawFinal?(raw)
             let cleaner = TranscriptCleaner(config: cleanerConfig)
             let cleaned = cleaner.clean(raw, isFinalTranscript: true)
             dispatch(.cleaned(text: cleaned))

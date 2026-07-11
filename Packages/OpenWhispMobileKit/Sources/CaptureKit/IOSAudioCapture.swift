@@ -51,8 +51,11 @@ public final class IOSAudioCapture: AudioCapture, @unchecked Sendable {
     public struct SessionConfig {
         public var category: AVAudioSession.Category = .playAndRecord
         public var mode: AVAudioSession.Mode = .measurement
+        // `.allowBluetooth` (not the iOS-26 SDK rename `.allowBluetoothHFP`):
+        // the rename does not exist in older SDKs, and CI runners routinely lag
+        // a major Xcode behind — the deprecated spelling compiles everywhere.
         public var options: AVAudioSession.CategoryOptions = [
-            .allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker,
+            .allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker,
         ]
         public init() {}
     }

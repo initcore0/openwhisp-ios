@@ -1,15 +1,14 @@
 import XCTest
 
 /// Tier-3 (simulator XCUITest) smoke test: launch the host app on a booted
-/// simulator and assert the placeholder home screen (WP1 scaffold) actually
-/// renders. This is the cheapest end-to-end proof that the app bundle installs,
-/// links `OpenWhispMobileKit`, and reaches its first screen — the layer
-/// `swift test` cannot cover because it never builds or launches the app.
+/// simulator and assert the real UI (WP3) renders — the main TabView (Dictate /
+/// History / Settings), and that the Engine Lab opens and lists its bundled
+/// fixtures.
 ///
-/// Assertions are deliberately anchored on the stable copy the scaffold ships
-/// (`HomeView`): the "OpenWhisp" navigation title and the "Scaffold (WP1)"
-/// status row. When WP3 replaces the placeholder home with the real composer,
-/// update these anchors (and prefer accessibility identifiers then).
+/// Deterministic + CI-safe: launched with `-uitest-skip-onboarding` so the app
+/// lands directly on the TabView (no onboarding, no model download), and the test
+/// never records audio or downloads a model — it only navigates and asserts static
+/// structure.
 final class HomeSmokeUITests: XCTestCase {
 
     override func setUp() {
@@ -17,43 +16,60 @@ final class HomeSmokeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// The app launches and the placeholder home renders.
-    func testAppLaunchesAndHomeRenders() {
+    private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-uitest-skip-onboarding"]
         app.launch()
-
-        XCTAssertEqual(app.state, .runningForeground, "app did not reach the foreground")
-
-        // Navigation title (rendered as a static text / other element in the nav bar).
-        let title = app.staticTexts["OpenWhisp"]
-        XCTAssertTrue(title.waitForExistence(timeout: 10),
-                      "home navigation title 'OpenWhisp' never appeared")
-
-        // A stable row from the scaffold's HomeView proves the List rendered and
-        // the app genuinely links MobileCore. The Status row is a SwiftUI
-        // `LabeledContent`, which exposes the whole row as ONE element whose
-        // *value* is "Scaffold (WP1)" (not a standalone static text) — so match
-        // any element carrying that string in its label or value, rather than by
-        // exact label. This is the robust way to assert on LabeledContent values.
-        let scaffoldRow = app.descendants(matching: .any).matching(
-            NSPredicate(format:
-                "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "Scaffold (WP1)", "Scaffold (WP1)")
-        ).firstMatch
-        XCTAssertTrue(scaffoldRow.waitForExistence(timeout: 5),
-                      "expected the 'Scaffold (WP1)' status value to render")
+        return app
     }
 
-    /// The home content is non-trivial (guards against an app that launches to a
-    /// blank window — a common silent failure when the SwiftUI root fails to
-    /// resolve). We assert several of the scaffold's known labels are present.
-    func testHomeShowsExpectedSections() {
-        let app = XCUIApplication()
-        app.launch()
+    /// The app launches to the main TabView and the composer renders.
+    func testAppLaunchesToComposer() {
+        let app = launchApp()
+        XCTAssertEqual(app.state, .runningForeground, "app did not reach the foreground")
 
-        for label in ["OpenWhisp", "Status", "Bundle", "Version"] {
-            let el = app.staticTexts[label]
-            XCTAssertTrue(el.waitForExistence(timeout: 10),
-                          "expected home to show the '\(label)' label")
+        // The Dictate tab is selected by default; its record button carries a stable id.
+        let record = app.buttons["composer.record"]
+        XCTAssertTrue(record.waitForExistence(timeout: 10),
+                      "composer record button never appeared")
+
+        // The three tabs exist.
+        for tab in ["Dictate", "History", "Settings"] {
+            XCTAssertTrue(app.tabBars.buttons[tab].waitForExistence(timeout: 5),
+                          "expected the '\(tab)' tab")
         }
+    }
+
+    /// Navigating to Settings → Engine Lab opens the Lab and lists fixtures.
+    func testEngineLabOpensAndListsFixtures() {
+        let app = launchApp()
+
+        // Go to the Settings tab.
+        let settingsTab = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 10), "Settings tab missing")
+        settingsTab.tap()
+
+        // Open the Engine Lab from the Developer section.
+        let labRow = app.buttons["settings.engineLab"]
+        XCTAssertTrue(labRow.waitForExistence(timeout: 10), "Engine Lab row missing")
+        labRow.tap()
+
+        // The Lab lists the bundled fixtures (Debug builds bundle them). The English
+        // fixture is near the top — its presence proves the Lab resolved the bundle.
+        let plain = app.staticTexts["Plain speech (pangram)"]
+        XCTAssertTrue(plain.waitForExistence(timeout: 10),
+                      "Engine Lab did not list the English fixture (bundle resolution failed?)")
+
+        // A multilingual fixture (the product's headline) lives further down the
+        // scroll; swipe until it's realized, then assert. Bounded so a genuinely
+        // missing fixture still fails rather than looping forever.
+        let russian = app.staticTexts["Russian greeting"]
+        var swipes = 0
+        while !russian.exists && swipes < 6 {
+            app.swipeUp()
+            swipes += 1
+        }
+        XCTAssertTrue(russian.waitForExistence(timeout: 5),
+                      "Engine Lab did not list the multilingual fixture")
     }
 }

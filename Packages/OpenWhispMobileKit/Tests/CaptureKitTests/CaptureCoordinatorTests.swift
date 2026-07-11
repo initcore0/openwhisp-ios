@@ -301,4 +301,27 @@ final class CaptureCoordinatorTests: XCTestCase {
         XCTAssertEqual(partials, ["gpt", "gpt is"], "partials are forwarded verbatim")
         XCTAssertNil(try store.peek(), "partials must never publish")
     }
+    // MARK: - Raw-final hook (history revert data)
+
+    func testOnRawFinalFiresWithRawTextBeforeCleaning() async throws {
+        let (coordinator, engine, _, store, _) = makeCoordinator()
+        var raws: [String] = []
+        coordinator.onRawFinal = { raws.append($0) }
+
+        await coordinator.begin(trigger: .inApp)
+        await drain()
+        await coordinator.stop()
+        await drain()
+
+        let raw = "gpt is great"
+        engine.emitFinal(raw)
+        await drain()
+
+        XCTAssertEqual(raws, [raw], "onRawFinal must deliver the raw engine text exactly once")
+        // And the published transcript is still the cleaned text, not the raw.
+        let published = try store.peek()
+        XCTAssertEqual(published?.text, TestCleaner.expected(for: raw))
+        XCTAssertNotEqual(published?.text, raw)
+    }
+
 }

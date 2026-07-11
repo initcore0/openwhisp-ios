@@ -42,7 +42,10 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO \
   | (command -v xcbeautify >/dev/null 2>&1 && xcbeautify || cat)
 
-APP_PATH="$(find "$DERIVED/Build/Products" -maxdepth 2 -name 'OpenWhisp.app' -type d | head -1)"
+# Pin to the Debug product: the build above is Debug (fixtures bundled), but a
+# stale Release product from another task may coexist in DerivedData and a
+# blind find could install the fixture-less Release app.
+APP_PATH="$(find "$DERIVED/Build/Products/Debug-iphonesimulator" -maxdepth 1 -name 'OpenWhisp.app' -type d 2>/dev/null | head -1)"
 [[ -n "$APP_PATH" ]] || { echo "error: could not locate built OpenWhisp.app under $DERIVED"; exit 1; }
 echo "    Built: $APP_PATH"
 
