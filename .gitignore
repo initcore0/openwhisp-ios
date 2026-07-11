@@ -1,0 +1,10 @@
+# Generated
+*.xcodeproj
+.build/
+DerivedData/
+
+# OS
+.DS_Store
+
+# Session
+.claude/
