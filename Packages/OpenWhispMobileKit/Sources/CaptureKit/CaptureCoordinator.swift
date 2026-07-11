@@ -28,7 +28,8 @@ import OpenWhispCore
 ///     `.clean(raw:)` effect; result is fed back as `.cleaned`.
 ///   - `DictationHandoffStore`: the `.publish` effect writes the `PendingTranscript`;
 ///     the resulting id goes back through `flow.didPublish(id:)`.
-public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable {
+@MainActor
+public final class CaptureCoordinator: CaptureCoordinating {
 
     // MARK: CaptureCoordinating
 
@@ -81,20 +82,21 @@ public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable 
         self.silence = SilenceAutoStop(config: silenceConfig)
 
         wireEngine()
+        wireSession()
     }
 
     // MARK: - Public control (CaptureCoordinating)
 
     public func begin(trigger: CaptureTrigger) async {
-        await MainActor.run { self.dispatch(.trigger(trigger)) }
+        dispatch(.trigger(trigger))
     }
 
     public func stop() async {
-        await MainActor.run { self.dispatch(.manualStop) }
+        dispatch(.manualStop)
     }
 
     public func cancel() async {
-        await MainActor.run { self.dispatch(.cancel) }
+        dispatch(.cancel)
     }
 
     // MARK: - Engine callbacks → events
@@ -115,6 +117,18 @@ public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable 
         engine.onError = { [weak self] message in
             guard let self else { return }
             Task { @MainActor in self.dispatch(.engineError(message)) }
+        }
+    }
+
+    /// Install the session-interruption callback ONCE. A phone call / Siri, or the
+    /// loss of the input route mid-capture, fires this — the coordinator maps it to
+    /// a `.interrupted` event so the flow aborts instead of sticking in `.listening`
+    /// with a dead tap. The streaming engines own the mic but observe no session
+    /// notifications; this seam is the only interruption path into the flow.
+    private func wireSession() {
+        session.onInterruption = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in self.dispatch(.interrupted) }
         }
     }
 
@@ -154,20 +168,11 @@ public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable 
         defer { draining = false }
         while !pendingEvents.isEmpty {
             let next = pendingEvents.removeFirst()
-            // A `.stopAudio` effect is emitted both by a normal stop (still
-            // transcribes) and by a cancel/interrupt (discard). The effect alone
-            // can't tell them apart, but the EVENT can: on cancel/interrupt we cancel
-            // the engine (drop its final); on manual/silence stop we let it finish.
-            currentEventDiscards = (next == .cancel || next == .interrupted)
             for effect in flow.handle(next) {
                 execute(effect)
             }
         }
     }
-
-    /// True while processing a `.cancel`/`.interrupted` event — makes `.stopAudio`
-    /// cancel the engine (discard its final) rather than let it transcribe.
-    private var currentEventDiscards = false
 
     @MainActor
     private func execute(_ effect: CaptureFlow.Effect) {
@@ -186,10 +191,20 @@ public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable 
             }
 
         case .stopAudio:
-            // End capture. On a normal stop the engine still transcribes (→ onFinal);
-            // on a cancel/interrupt it discards (no final reaches the — now idle —
-            // machine anyway, but cancelling saves a wasted decode).
-            engine.stop(cancel: currentEventDiscards)
+            // End the capture *session's audio*. On this platform the streaming
+            // engine owns the mic tap, so there is no separate audio object to stop
+            // here — engine teardown is a DISTINCT `.stopEngine` effect (never an
+            // implicit side effect of stopping audio, per the §6.2 literal-effects
+            // doctrine). Kept as an explicit effect so the contract stays symmetric
+            // and a future non-mic-owning-engine path has a hook.
+            break
+
+        case .stopEngine(let cancel):
+            // Tear down the engine LITERALLY. `cancel: false` lets an in-flight
+            // decode finish and deliver its final (normal stop); `cancel: true`
+            // discards it (abort paths). This is the ONLY place the engine is
+            // stopped — no other effect stops it as a side effect.
+            engine.stop(cancel: cancel)
 
         case .startEngine(let language):
             do {
@@ -251,7 +266,11 @@ public final class CaptureCoordinator: CaptureCoordinating, @unchecked Sendable 
             session.deactivate()
 
         case .abort(let failure):
-            engine.stop(cancel: true)
+            // Engine teardown is NOT done here — the flow emits an explicit
+            // `.stopEngine(cancel: true)` BEFORE `.abort` on every abort path where
+            // the engine is live (and omits it on engineError, where the engine is
+            // already dead). `.abort` only records the failure and releases the
+            // session (§6.2 literal-effects doctrine).
             state = .failed(failure)
             session.deactivate()
         }
@@ -268,4 +287,12 @@ public protocol AudioSessionControlling: AnyObject {
     func activate() throws
     /// Release the session (notifying others).
     func deactivate()
+    /// Fired when the OS interrupts the session mid-capture (a phone call / Siri
+    /// interruption *begins*, or the input route is lost — headset unplugged /
+    /// Bluetooth dropped, i.e. old-device-unavailable with no input). The real
+    /// conformer installs `AVAudioSession` notification observers; the coordinator
+    /// sets this once and maps it to a `.interrupted` event so the streaming
+    /// engines — which own the mic and observe nothing themselves — no longer
+    /// silently keep the flow stuck in `.listening` when the tap dies.
+    var onInterruption: (() -> Void)? { get set }
 }

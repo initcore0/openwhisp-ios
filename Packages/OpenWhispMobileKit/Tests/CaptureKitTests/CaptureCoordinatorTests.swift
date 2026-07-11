@@ -155,6 +155,78 @@ final class CaptureCoordinatorTests: XCTestCase {
         XCTAssertNil(try store.peek(), "a final after cancel must not publish")
     }
 
+    // MARK: - Cancel during transcribing stops the in-flight engine (Finding 2)
+
+    func testCancelDuringTranscribingStopsEngine() async throws {
+        let (coordinator, engine, _, store, notifier) = makeCoordinator()
+
+        // Drive to .transcribing via a manual stop (engine still running its decode).
+        await coordinator.begin(trigger: .inApp)
+        await drain()
+        await coordinator.stop()
+        await drain()
+        XCTAssertEqual(coordinator.state, .transcribing)
+        // Manual stop stopped the engine with cancel:false (let it finish).
+        XCTAssertEqual(engine.stopCount, 1)
+        XCTAssertEqual(engine.cancelCount, 0)
+
+        // Cancel the in-flight decode. Before Finding 2 this emitted no engine-stop
+        // effect, so the decode ran to completion wastefully. Now it must cancel it.
+        await coordinator.cancel()
+        await drain()
+
+        XCTAssertEqual(engine.cancelCount, 1, "cancel during transcribing must stop the engine with cancel:true")
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertNil(try store.peek(), "a cancelled decode must publish nothing")
+        XCTAssertEqual(notifier.notifyCount, 0)
+
+        // Even a late final (if the engine ignored the cancel) must not publish.
+        engine.emitFinal("gpt is great")
+        await drain()
+        XCTAssertNil(try store.peek(), "a final after cancel must not publish")
+    }
+
+    // MARK: - Interruption mid-capture aborts + stops the engine (Finding 1)
+
+    func testSessionInterruptionWhileListeningAbortsAndStopsEngine() async throws {
+        let (coordinator, engine, session, store, notifier) = makeCoordinator()
+
+        await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitLevel(display: 0.5, vad: 0.5)
+        await drain()
+        guard case .listening = coordinator.state else {
+            return XCTFail("expected .listening, got \(coordinator.state)")
+        }
+
+        // The OS interrupts the live session (phone call / Siri / headset unplug).
+        session.fireInterruption()
+        await drain()
+
+        XCTAssertEqual(engine.cancelCount, 1, "interruption while listening must cancel the engine")
+        XCTAssertEqual(coordinator.state, .failed(.sessionInterrupted))
+        XCTAssertNil(try store.peek(), "an interrupted capture publishes nothing")
+        XCTAssertEqual(notifier.notifyCount, 0)
+    }
+
+    func testSessionInterruptionWhileTranscribingAbortsAndStopsEngine() async throws {
+        let (coordinator, engine, session, store, _) = makeCoordinator()
+
+        await coordinator.begin(trigger: .inApp)
+        await drain()
+        await coordinator.stop()   // → .transcribing, engine finishing its decode
+        await drain()
+        XCTAssertEqual(coordinator.state, .transcribing)
+
+        // Interruption arrives while the engine is still decoding.
+        session.fireInterruption()
+        await drain()
+
+        XCTAssertEqual(engine.cancelCount, 1, "interruption while transcribing must cancel the engine")
+        XCTAssertEqual(coordinator.state, .failed(.sessionInterrupted))
+        XCTAssertNil(try store.peek(), "an interrupted decode publishes nothing")
+    }
+
     // MARK: - Interruption never publishes
 
     func testInterruptionAbortsAndNeverPublishes() async throws {

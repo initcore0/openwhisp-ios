@@ -260,7 +260,11 @@ public struct CaptureFlow {
     // a .publish effect — raw engine text can never reach publish. didPublish(id:)
     // returns [.updateActivity(.published(id)), .endActivity] so activity
     // teardown is part of the tested contract, not a driver convention.
+    // stopEngine(cancel:) is part of the effect vocabulary; engine teardown is
+    // never implicit — the driver stops the engine ONLY on an explicit stopEngine
+    // effect (cancel:false lets a decode finish, cancel:true discards it).
     public enum Effect { case startAudio, stopAudio, startEngine(language: String),
+                         stopEngine(cancel: Bool),
                          clean(raw: String), publish(text: String, source: PendingTranscript.Source),
                          updateActivity(CaptureState), endActivity, abort(CaptureFailure) }
     public private(set) var state: CaptureState

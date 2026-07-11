@@ -44,18 +44,24 @@ final class FakeStreamingEngine: StreamingTranscriptionEngine {
     func emitError(_ message: String) { onError?(message) }
 }
 
-/// An `AudioSessionControlling` fake that records activation/deactivation and can
-/// be made to fail activation (to exercise the interrupted path).
+/// An `AudioSessionControlling` fake that records activation/deactivation, can be
+/// made to fail activation (to exercise the interrupted path), and can fire an
+/// interruption on demand (to exercise the mid-capture interruption path).
 final class FakeAudioSession: AudioSessionControlling {
     private(set) var activateCount = 0
     private(set) var deactivateCount = 0
     var activationError: Error?
+    var onInterruption: (() -> Void)?
 
     func activate() throws {
         if let activationError { throw activationError }
         activateCount += 1
     }
     func deactivate() { deactivateCount += 1 }
+
+    /// Simulate the OS interrupting the live session (phone call / Siri / route
+    /// loss) — drives the coordinator's `.interrupted` dispatch.
+    func fireInterruption() { onInterruption?() }
 }
 
 /// A `HandoffNotifier` fake that counts pings.
