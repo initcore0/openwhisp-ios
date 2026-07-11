@@ -24,10 +24,10 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertEqual(flow.state, .listening(level: 0.42))
         XCTAssertEqual(effects, [.updateActivity(.listening(level: 0.42))])
 
-        // silenceStopped → transcribing, stop audio.
+        // silenceStopped → transcribing, stop audio, stop engine (let it finish).
         effects = flow.handle(.silenceStopped)
         XCTAssertEqual(flow.state, .transcribing)
-        XCTAssertEqual(effects, [.stopAudio, .updateActivity(.transcribing)])
+        XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: false), .updateActivity(.transcribing)])
 
         // engineFinal → clean ONLY (raw text can never reach publish).
         effects = flow.handle(.engineFinal("hello world"))
@@ -69,7 +69,7 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.audioReady)
         let effects = flow.handle(.manualStop)
         XCTAssertEqual(flow.state, .transcribing)
-        XCTAssertEqual(effects, [.stopAudio, .updateActivity(.transcribing)])
+        XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: false), .updateActivity(.transcribing)])
     }
 
     // MARK: Source mapping
@@ -110,17 +110,20 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.audioReady)
         let effects = flow.handle(.cancel)
         XCTAssertEqual(flow.state, .idle)
-        XCTAssertEqual(effects, [.stopAudio, .endActivity])
+        // Abort while listening cancels the engine's decode (cancel: true).
+        XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: true), .endActivity])
     }
 
-    func testCancelFromTranscribingDoesNotStopAudioAgain() {
+    func testCancelFromTranscribingStopsEngineButNotAudioAgain() {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
         _ = flow.handle(.silenceStopped)   // already stopped audio
         let effects = flow.handle(.cancel)
         XCTAssertEqual(flow.state, .idle)
-        XCTAssertEqual(effects, [.endActivity])
+        // Audio is already stopped; cancel still stops the in-flight decode so it
+        // does not complete wastefully (Finding 2).
+        XCTAssertEqual(effects, [.stopEngine(cancel: true), .endActivity])
     }
 
     func testCancelFromIdleIsNoOp() {
@@ -179,7 +182,8 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.audioReady)
         let effects = flow.handle(.interrupted)
         XCTAssertEqual(flow.state, .failed(.sessionInterrupted))
-        XCTAssertEqual(effects, [.stopAudio, .abort(.sessionInterrupted)])
+        // Interruption while listening: stop audio AND cancel the engine (Finding 1).
+        XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: true), .abort(.sessionInterrupted)])
     }
 
     func testInterruptedWhilePreparingAborts() {
@@ -197,7 +201,8 @@ final class CaptureFlowTests: XCTestCase {
         _ = flow.handle(.silenceStopped)
         let effects = flow.handle(.interrupted)
         XCTAssertEqual(flow.state, .failed(.sessionInterrupted))
-        XCTAssertEqual(effects, [.abort(.sessionInterrupted)])
+        // Audio already stopped; interruption cancels the finishing engine (Finding 1/2).
+        XCTAssertEqual(effects, [.stopEngine(cancel: true), .abort(.sessionInterrupted)])
     }
 
     // MARK: Restart from terminal states

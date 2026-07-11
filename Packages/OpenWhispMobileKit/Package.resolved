@@ -1,0 +1,41 @@
+{
+  "originHash" : "8e032c96ab35831ae6429c9c490ca0843a44a3420ae5112f0fadf281abcafb97",
+  "pins" : [
+    {
+      "identity" : "argmax-oss-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/initcore0/argmax-oss-swift.git",
+      "state" : {
+        "revision" : "7e5f648249fde3eeabab02250529f63f16476e91"
+      }
+    },
+    {
+      "identity" : "fluidaudio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidInference/FluidAudio.git",
+      "state" : {
+        "revision" : "19600a485baa4998812e4654b70d2bab8f2c9949",
+        "version" : "0.15.5"
+      }
+    },
+    {
+      "identity" : "openwhisp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/initcore0/openwhisp.git",
+      "state" : {
+        "branch" : "mak-51-ios-core",
+        "revision" : "46c346922f6bb5a39c166b1f17a22195da4b3862"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
+      }
+    }
+  ],
+  "version" : 3
+}

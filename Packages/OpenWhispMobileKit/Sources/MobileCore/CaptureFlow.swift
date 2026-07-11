@@ -70,6 +70,11 @@ public struct CaptureFlow: Equatable, Sendable {
         case startAudio
         case stopAudio
         case startEngine(language: String)
+        /// Tear down the transcription engine. `cancel: false` lets an in-flight
+        /// decode finish and deliver its final (normal stop); `cancel: true`
+        /// discards it (abort paths). Engine teardown is NEVER implicit — it is
+        /// always an explicit effect the driver executes literally (§6.2).
+        case stopEngine(cancel: Bool)
         case clean(raw: String)
         case publish(text: String, source: PendingTranscript.Source)
         case updateActivity(CaptureState)
@@ -131,13 +136,15 @@ public struct CaptureFlow: Equatable, Sendable {
             return [.startEngine(language: language), .updateActivity(.listening(level: 0))]
 
         case (.preparing, .cancel):
-            return abortToIdle(stopAudio: true, failure: nil)
+            // The engine has not started yet (that happens on audioReady), so there
+            // is nothing to stop — only the audio session to release.
+            return abortToIdle(stopAudio: true, stopEngine: .none, failure: nil)
 
         case (.preparing, .interrupted):
-            return abortToIdle(stopAudio: true, failure: .sessionInterrupted)
+            return abortToIdle(stopAudio: true, stopEngine: .none, failure: .sessionInterrupted)
 
         case (.preparing, .engineError(let message)):
-            return abortToIdle(stopAudio: true, failure: .engineError(message))
+            return abortToIdle(stopAudio: true, stopEngine: .none, failure: .engineError(message))
 
         case (.preparing, .trigger),
              (.preparing, .level),
@@ -155,17 +162,21 @@ public struct CaptureFlow: Equatable, Sendable {
 
         case (.listening, .silenceStopped),
              (.listening, .manualStop):
+            // Normal stop: end audio, let the engine finish its decode (cancel:
+            // false), then transcribe. Engine teardown is explicit, never implicit.
             state = .transcribing
-            return [.stopAudio, .updateActivity(.transcribing)]
+            return [.stopAudio, .stopEngine(cancel: false), .updateActivity(.transcribing)]
 
         case (.listening, .cancel):
-            return abortToIdle(stopAudio: true, failure: nil)
+            // Abort while listening: stop audio AND cancel the engine's decode.
+            return abortToIdle(stopAudio: true, stopEngine: .cancel, failure: nil)
 
         case (.listening, .interrupted):
-            return abortToIdle(stopAudio: true, failure: .sessionInterrupted)
+            return abortToIdle(stopAudio: true, stopEngine: .cancel, failure: .sessionInterrupted)
 
         case (.listening, .engineError(let message)):
-            return abortToIdle(stopAudio: true, failure: .engineError(message))
+            // engineError means the engine is already dead — do NOT re-stop it.
+            return abortToIdle(stopAudio: true, stopEngine: .none, failure: .engineError(message))
 
         case (.listening, .trigger),
              (.listening, .audioReady),
@@ -188,15 +199,18 @@ public struct CaptureFlow: Equatable, Sendable {
             return [.publish(text: text, source: source)]
 
         case (.transcribing, .cancel):
-            return abortToIdle(stopAudio: false, failure: nil)
+            // Audio is already stopped; cancel the in-flight decode so it does not
+            // complete wastefully (the engine is still running until we stop it).
+            return abortToIdle(stopAudio: false, stopEngine: .cancel, failure: nil)
 
         case (.transcribing, .engineError(let message)):
-            return abortToIdle(stopAudio: false, failure: .engineError(message))
+            // engineError means the engine is already dead — do NOT re-stop it.
+            return abortToIdle(stopAudio: false, stopEngine: .none, failure: .engineError(message))
 
         case (.transcribing, .interrupted):
-            // Audio is already stopped; interruption during transcription just
-            // means we abort the (finishing) engine.
-            return abortToIdle(stopAudio: false, failure: .sessionInterrupted)
+            // Audio is already stopped; interruption during transcription cancels
+            // the (finishing) engine so nothing is published.
+            return abortToIdle(stopAudio: false, stopEngine: .cancel, failure: .sessionInterrupted)
 
         case (.transcribing, .trigger),
              (.transcribing, .audioReady),
@@ -250,13 +264,28 @@ public struct CaptureFlow: Equatable, Sendable {
         return [.updateActivity(.published(id)), .endActivity]
     }
 
-    /// Common teardown: stop audio (if still running), end the activity, and
-    /// either fail or go idle.
-    private mutating func abortToIdle(stopAudio: Bool, failure: CaptureFailure?) -> [Effect] {
+    /// Whether an abort should also tear down the engine, and how.
+    private enum EngineTeardown {
+        /// Leave the engine alone (it was never started, or already died on error).
+        case none
+        /// Stop the engine and discard any pending decode.
+        case cancel
+    }
+
+    /// Common teardown: stop audio (if still running), tear down the engine (if it
+    /// is live), end the activity, and either fail or go idle. Engine teardown is
+    /// always an explicit `.stopEngine` effect — never a side effect of another
+    /// effect (§6.2 literal-effects doctrine).
+    private mutating func abortToIdle(
+        stopAudio: Bool, stopEngine: EngineTeardown, failure: CaptureFailure?
+    ) -> [Effect] {
         activeTrigger = nil
         var effects: [Effect] = []
         if stopAudio {
             effects.append(.stopAudio)
+        }
+        if case .cancel = stopEngine {
+            effects.append(.stopEngine(cancel: true))
         }
         if let failure {
             state = .failed(failure)
@@ -269,10 +298,14 @@ public struct CaptureFlow: Equatable, Sendable {
     }
 }
 
-/// The host-side driver (implemented in CaptureKit, `@MainActor`): owns the
-/// `AVAudioSession` config, the iOS `AudioCapture` conformer, the streaming
-/// engine, `SilenceAutoStop`, `TranscriptCleaner`, and executes the `CaptureFlow`
-/// effects. Declared here so MobileCore-side callers can depend on the seam.
+/// The host-side driver (implemented in CaptureKit): owns the `AVAudioSession`
+/// config, the iOS `AudioCapture` conformer, the streaming engine, `SilenceAutoStop`,
+/// `TranscriptCleaner`, and executes the `CaptureFlow` effects. `@MainActor` because
+/// it drives UI-facing state (the Live Activity, waveform) and owns single-threaded
+/// mutable orchestration state — the driver runs entirely on the main actor rather
+/// than hopping per method. Declared here so MobileCore-side callers can depend on
+/// the seam.
+@MainActor
 public protocol CaptureCoordinating: AnyObject {
     var state: CaptureState { get }
     var onStateChange: ((CaptureState) -> Void)? { get set }
