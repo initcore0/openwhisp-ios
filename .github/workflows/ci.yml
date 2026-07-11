@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast, always-green gate: the shared package's unit tests (no simulator).
+  package-tests:
+    name: swift test (OpenWhispMobileKit)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: swift test
+        run: ./scripts/test.sh
+
+  # Unsigned simulator build of all three product targets (needs only the SDK,
+  # a generic destination — no booted simulator, no signing team).
+  simulator-build:
+    name: xcodegen + unsigned simulator build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build all targets (unsigned, simulator)
+        run: ./scripts/build-sim.sh

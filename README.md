@@ -10,7 +10,47 @@ is peer-to-peer over your own Wi-Fi.
 
 ## Status
 
-**Architecture / planning phase.** No app code yet. Start here:
+**Scaffold (WP1) — the repo builds and its tests are green.** The project
+structure, shared package, interface types, and empty-but-compiling app shells
+exist; feature code lands in later work packages (WP2+).
+
+What's in place:
+
+- **`Packages/OpenWhispMobileKit`** — the shared SwiftPM package. `MobileCore`
+  and `KeyboardCore` are Foundation-only and 100% unit-tested (the `swift test`
+  gate); `CaptureKit` and `SyncKit` are placeholder targets for the OS-bound
+  conformers (WP3/WP6). Interface types from [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+  §6 are defined with doc comments; the pure logic that already exists
+  (`CaptureFlow`, `MicKeyResolver`, `TranscriptInsertPolicy`,
+  `KeyboardLayoutModel`, `InMemoryHandoffStore`) is implemented and tested.
+- **`Apps/`** — the three targets: `OpenWhisp` (SwiftUI host app),
+  `OpenWhispKeyboard` (keyboard extension with a placeholder row), and
+  `OpenWhispWidgets` (widget stub).
+- **`project.yml`** — the XcodeGen spec (the `.xcodeproj` is generated and
+  git-ignored). Bundle IDs, the `group.app.openwhisp.ios` App Group, and iOS 18
+  deployment are wired here (decisions D2/D10).
+
+### Bootstrap, test, build
+
+```sh
+./scripts/bootstrap.sh   # verify/install XcodeGen, generate OpenWhisp.xcodeproj
+./scripts/test.sh        # swift test on OpenWhispMobileKit (the always-green gate)
+./scripts/build-sim.sh   # unsigned simulator build of all three targets
+```
+
+Signing uses automatic signing with the team taken from the `DEVELOPMENT_TEAM`
+environment variable; simulator builds succeed unsigned (no team needed). CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the package tests
+and the unsigned simulator build on every push/PR.
+
+> **Device builds:** the generated project carries the literal
+> `${DEVELOPMENT_TEAM}` build setting, so Xcode only resolves a team when it
+> inherits the env var — launch it via `DEVELOPMENT_TEAM=XXXXXXXXXX xed .`
+> (or export it in your shell profile). Opening Xcode from the Dock leaves the
+> team empty and automatic signing for device runs will fail; simulator runs
+> are unaffected.
+
+The design docs remain the source of truth:
 
 | Doc | What it is |
 |---|---|
