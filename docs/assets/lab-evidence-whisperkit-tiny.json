@@ -1,0 +1,12 @@
+{
+  "deletions" : 0,
+  "engine" : "WhisperKit openai_whisper-tiny.en (file engine)",
+  "fixture" : "plain_speech.wav",
+  "hypothesis" : "The quick brown fox jumps over the lazy dog.",
+  "insertions" : 0,
+  "latencySeconds" : "4.97",
+  "note" : "Generated on the swift-test host through the same FileTranscriptionEngine seam the iOS Engine Lab uses.",
+  "reference" : "The quick brown fox jumps over the lazy dog.",
+  "substitutions" : 0,
+  "wer" : "0.0%"
+}
