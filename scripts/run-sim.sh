@@ -11,8 +11,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-command -v xcodegen >/dev/null 2>&1 || { echo "installing xcodegen…"; brew install xcodegen; }
+command -v xcodegen >/dev/null 2>&1 || { echo "installing xcodegen..."; brew install xcodegen; }
 "$ROOT/scripts/bootstrap.sh" >/dev/null
+# shellcheck source=scripts/sim-helpers.sh
+source "$ROOT/scripts/sim-helpers.sh"
 
 DEVICE="${OPENWHISP_SIM_DEVICE:-iPhone 17}"
 OS="${OPENWHISP_SIM_OS:-26.5}"
@@ -23,30 +25,15 @@ SHOT="$ROOT/.build/run-sim-launch.png"
 
 # --- Resolve + boot the simulator --------------------------------------------
 echo "==> Resolving simulator: $DEVICE (iOS $OS)"
-# Match the "    <DEVICE> (<UDID>) (<state>)" line by literal device name
-# (the trailing " (" anchors it so "iPhone 17" won't match "iPhone 17 Pro"),
-# then pull the UUID out. `grep -F` avoids treating the name as a regex.
-DEVICE_LINE="$(xcrun simctl list devices available | grep -F "    $DEVICE (" | head -1)"
-UDID="$(printf '%s' "$DEVICE_LINE" | grep -oE '[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}' | head -1)"
-if [[ -z "${UDID:-}" ]]; then
-  echo "error: no available simulator named '$DEVICE' (iOS $OS)." >&2
-  echo "Available iPhones:" >&2
-  xcrun simctl list devices available | grep -i iphone >&2
-  exit 1
-fi
+UDID="$(resolve_sim_udid "$DEVICE" "$OS")"
+[[ -n "$UDID" ]] || die_no_sim "$DEVICE" "$OS"
 echo "    UDID: $UDID"
-
-STATE="$(xcrun simctl list devices | grep "$UDID" | grep -oE '\((Booted|Shutdown)\)' | tr -d '()' || true)"
-if [[ "$STATE" != "Booted" ]]; then
-  echo "==> Booting…"
-  xcrun simctl boot "$UDID"
-fi
+boot_sim "$UDID"
 # Bring the Simulator.app window up so the human can watch (best-effort).
 open -a Simulator >/dev/null 2>&1 || true
-xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
 
 # --- Build the host app (unsigned) -------------------------------------------
-echo "==> Building OpenWhisp (unsigned, simulator)…"
+echo "==> Building OpenWhisp (unsigned, simulator)..."
 xcodebuild build \
   -project "$PROJECT" \
   -scheme OpenWhisp \
@@ -60,7 +47,7 @@ APP_PATH="$(find "$DERIVED/Build/Products" -maxdepth 2 -name 'OpenWhisp.app' -ty
 echo "    Built: $APP_PATH"
 
 # --- Install + launch ---------------------------------------------------------
-echo "==> Installing + launching…"
+echo "==> Installing + launching..."
 xcrun simctl install "$UDID" "$APP_BUNDLE_ID" 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP_PATH"
 # Terminate any stale instance so the launch below actually re-renders the UI.

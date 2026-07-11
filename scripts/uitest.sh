@@ -20,8 +20,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-command -v xcodegen >/dev/null 2>&1 || { echo "installing xcodegen…"; brew install xcodegen; }
+command -v xcodegen >/dev/null 2>&1 || { echo "installing xcodegen..."; brew install xcodegen; }
 "$ROOT/scripts/bootstrap.sh" >/dev/null
+# shellcheck source=scripts/sim-helpers.sh
+source "$ROOT/scripts/sim-helpers.sh"
 
 DEVICE="${OPENWHISP_SIM_DEVICE:-iPhone 17}"
 OS="${OPENWHISP_SIM_OS:-26.5}"
@@ -39,24 +41,10 @@ fi
 
 # --- Boot (or reuse) the target simulator ------------------------------------
 echo "==> Resolving simulator: $DEVICE (iOS $OS)"
-# Match "    <DEVICE> (<UDID>) (<state>)" by literal name (trailing " (" anchors
-# it so "iPhone 17" won't match "iPhone 17 Pro"), then extract the UUID.
-DEVICE_LINE="$(xcrun simctl list devices available | grep -F "    $DEVICE (" | head -1)"
-UDID="$(printf '%s' "$DEVICE_LINE" | grep -oE '[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}' | head -1)"
-if [[ -z "${UDID:-}" ]]; then
-  echo "error: no available simulator named '$DEVICE' (iOS $OS). Available:" >&2
-  xcrun simctl list devices available | grep -i iphone >&2
-  exit 1
-fi
+UDID="$(resolve_sim_udid "$DEVICE" "$OS")"
+[[ -n "$UDID" ]] || die_no_sim "$DEVICE" "$OS"
 echo "    UDID: $UDID"
-
-STATE="$(xcrun simctl list devices | grep "$UDID" | grep -oE '\((Booted|Shutdown)\)' | tr -d '()' || true)"
-if [[ "$STATE" != "Booted" ]]; then
-  echo "==> Booting $DEVICE…"
-  xcrun simctl boot "$UDID"
-fi
-# Wait until the device is fully booted (springboard up).
-xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
+boot_sim "$UDID"
 
 DEST="platform=iOS Simulator,id=$UDID"
 

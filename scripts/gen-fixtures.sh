@@ -131,7 +131,7 @@ best_voice() {
         <<<"$installed" | sed 's/[[:space:]]*$//'
 }
 
-echo "Generating audio fixtures into $OUT_DIR (English voice=$VOICE rate=$RATE)…"
+echo "Generating audio fixtures into $OUT_DIR (English voice=$VOICE rate=$RATE)..."
 
 # ============================================================================
 # 1) English pipeline fixtures (ported from the macOS repo)
@@ -172,7 +172,7 @@ echo "  ✓ silence.wav ($(du -h "$OUT_DIR/silence.wav" | cut -f1))"
 #    Skips a language cleanly if no voice is present (documented in the README).
 # ============================================================================
 
-echo "Generating multilingual fixtures (voices resolved from 'say -v ?')…"
+echo "Generating multilingual fixtures (voices resolved from 'say -v ?')..."
 
 # Spanish
 es_voice="$(best_voice es_ Mónica Paulina "Eddy (Spanish (Spain))")"
@@ -213,7 +213,7 @@ echo "Done. $(ls "$OUT_DIR"/*.wav | wc -l | tr -d ' ') WAV fixtures."
 # ============================================================================
 if [[ "$CHECK" == "1" ]]; then
     echo ""
-    echo "Checking committed fixtures' format against a fresh render…"
+    echo "Checking committed fixtures' format against a fresh render..."
     fail=0
     for wav in "$OUT_DIR"/*.wav; do
         name="$(basename "$wav")"

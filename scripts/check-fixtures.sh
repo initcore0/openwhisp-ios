@@ -66,12 +66,12 @@ for wav in "$DIR"/*.wav; do
     [[ -f "$DIR/$name.txt" ]] || err "$name.wav has no .txt reference sidecar"
 done
 
-echo "Checking required English pipeline fixtures…"
+echo "Checking required English pipeline fixtures..."
 for name in "${REQUIRED[@]}"; do
     [[ -f "$DIR/$name.wav" ]] && ok "$name present" || err "$name MISSING (required)"
 done
 
-echo "Checking multilingual fixtures (goal #1)…"
+echo "Checking multilingual fixtures (goal #1)..."
 present=0
 for name in "${EXPECTED_MULTILINGUAL[@]}"; do
     if [[ -f "$DIR/$name.wav" ]]; then ok "$name present"; present=$((present+1)); else echo "  – $name absent (voice not installed when generated?)"; fi

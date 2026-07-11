@@ -16,7 +16,7 @@ fast deterministic logic tests first, real hardware/engines last.
 | **1. `swift test` gate** | All pure logic: `CaptureFlow`, `MicKeyResolver`, `TranscriptInsertPolicy`, handoff store, layout/autocap, sync `plan()`. Deterministic, ~seconds, no simulator. | `./scripts/test.sh` | **CI (blocking)** + every local commit |
 | **1b. Fixture integrity** | The checked-in `fixtures/audio/*.wav` are 16 kHz/mono/16-bit and each has a `.txt` reference; the required English + multilingual set is present. | `./scripts/check-fixtures.sh` | **CI (blocking)** |
 | **2. Simulator XCUITest** | The app bundle builds, installs, launches, and renders; text entry works via the system keyboard. | `./scripts/uitest.sh` | **CI (separate job)** + local |
-| **3. Env-gated real-engine runs** | Real Parakeet/WhisperKit engines transcribe `fixtures/audio/*.wav` on a simulator (loose WER). Downloads models on first run. | `OPENWHISP_E2E_ENGINES=1 ./scripts/e2e-engines-sim.sh` | **Local / nightly (not blocking)** |
+| **3. Env-gated real-engine runs** | Real Parakeet/WhisperKit engines transcribe `fixtures/audio/*.wav` on a simulator (loose WER). Downloads models on first run. | `./scripts/e2e-engines-sim.sh` (the script opens the gate itself) | **Local / nightly (not blocking)** |
 | **4. Real-device checklist** | Hero-flow spikes, memory/latency/thermals, keyboard-extension enablement, cross-device sync — things a simulator cannot prove. | Manual (see below) | Human, pre-release |
 
 ### Tier 1 — the `swift test` gate
@@ -97,14 +97,18 @@ the on-device enablement + insertion is manual.
 ### Tier 3 — env-gated real-engine runs
 
 ```sh
-OPENWHISP_E2E_ENGINES=1 ./scripts/e2e-engines-sim.sh
+./scripts/e2e-engines-sim.sh
 ```
 
-Runs the package tests on a **simulator** destination (real Parakeet/WhisperKit
-link CoreML and cannot run in the Foundation-only `swift test` gate) with
-`OPENWHISP_E2E_ENGINES=1` exported, so the engine tests the WP3 agent adds
-(replaying `fixtures/audio/*.wav` through the real streaming/file engines)
-execute. Without the env var those tests skip and the script is a green no-op.
+Runs the package test suite (scheme `OpenWhispMobileKit-Package`, synthesized
+by xcodebuild from the package directory) on a **simulator** destination — real
+Parakeet/WhisperKit link CoreML and cannot run in the Foundation-only
+`swift test` gate. The script opens the gate by passing
+`TEST_RUNNER_OPENWHISP_E2E_ENGINES=1` to xcodebuild: the `TEST_RUNNER_` prefix
+is how an env var actually reaches the test process (a plain exported var or a
+trailing `KEY=VALUE` arg does **not** arrive — that dead-gate bug was caught in
+review). The engine tests read `OPENWHISP_E2E_ENGINES` from their environment
+and self-skip when it is absent, so plain `swift test` stays green and fast.
 
 **⚠️ First run downloads model weights** (Parakeet variants / WhisperKit
 tiny·base·small) from the network, cached thereafter — expect minutes and

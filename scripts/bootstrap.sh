@@ -10,7 +10,7 @@ cd "$ROOT"
 if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen not found on PATH."
   if command -v brew >/dev/null 2>&1; then
-    echo "Installing via Homebrew…"
+    echo "Installing via Homebrew..."
     brew install xcodegen
   else
     echo "error: Homebrew is not installed. Install XcodeGen manually:" >&2
