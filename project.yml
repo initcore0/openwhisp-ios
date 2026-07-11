@@ -139,6 +139,56 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
 
+  # MARK: - UI-test harness app (not shipped)
+  # A tiny, dependency-free SwiftUI app that exists ONLY as a stable surface for
+  # the system-keyboard typing UI test. It links nothing from the shared package
+  # so its UI can never drift as the real host app evolves. Owned by the testing
+  # infrastructure; never bundled into a release.
+  UITestHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/UITests/Host
+    info:
+      path: Apps/UITests/Host/Info.plist
+      properties:
+        CFBundleDisplayName: UITestHost
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.uitesthost
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  # MARK: - UI tests: host-app launch/home smoke (targets the REAL host app)
+  OpenWhispUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Apps/UITests/HostSmoke
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.uitests
+        # UI-test runners are always signed for the simulator/device; keep them
+        # unsigned-friendly for CI simulator runs.
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: OpenWhisp
+
+  # MARK: - UI tests: system-keyboard typing (targets the harness app)
+  UITestHostUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Apps/UITests/Typing
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.uitesthost.uitests
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: UITestHost
+
 schemes:
   OpenWhisp:
     build:
@@ -150,6 +200,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - OpenWhispUITests
   # Per-target schemes so each product target can be built on its own (used by
   # scripts/build-sim.sh and CI to prove every target builds in isolation).
   OpenWhispKeyboard:
@@ -160,3 +212,25 @@ schemes:
     build:
       targets:
         OpenWhispWidgets: all
+
+  # MARK: - UI-test schemes (used by scripts/uitest.sh + the CI simulator job)
+  # Host-app launch/home smoke against the real app.
+  OpenWhispUITests:
+    build:
+      targets:
+        OpenWhisp: all
+        OpenWhispUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - OpenWhispUITests
+  # System-keyboard typing against the dedicated harness app.
+  UITestHostUITests:
+    build:
+      targets:
+        UITestHost: all
+        UITestHostUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - UITestHostUITests

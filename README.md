@@ -33,10 +33,17 @@ What's in place:
 ### Bootstrap, test, build
 
 ```sh
-./scripts/bootstrap.sh   # verify/install XcodeGen, generate OpenWhisp.xcodeproj
-./scripts/test.sh        # swift test on OpenWhispMobileKit (the always-green gate)
-./scripts/build-sim.sh   # unsigned simulator build of all three targets
+./scripts/bootstrap.sh       # verify/install XcodeGen, generate OpenWhisp.xcodeproj
+./scripts/test.sh            # swift test on OpenWhispMobileKit (the always-green gate)
+./scripts/check-fixtures.sh  # validate the checked-in audio fixtures
+./scripts/build-sim.sh       # unsigned simulator build of all three targets
+./scripts/run-sim.sh         # boot a simulator, install + launch the app (see it running)
+./scripts/uitest.sh          # simulator XCUITest smoke (host launch + system-keyboard typing)
 ```
+
+The full testing contract — the tier table, what runs in CI vs. locally/nightly,
+the env-gated real-engine runs, and the real-device checklist — is in
+[docs/TESTING.md](docs/TESTING.md).
 
 Signing uses automatic signing with the team taken from the `DEVELOPMENT_TEAM`
 environment variable; simulator builds succeed unsigned (no team needed). CI
@@ -57,6 +64,7 @@ The design docs remain the source of truth:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, module boundaries, decisions, and the Swift interfaces every component implements |
 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Concrete work packages (WP0–WP9) with dependencies, acceptance criteria, and test gates — sized for autonomous agent dispatch |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | The fact-checked feasibility study (platform constraints, App Store rules, sync tiers, MCP role) — the "why" behind every decision |
+| [docs/TESTING.md](docs/TESTING.md) | The tiered testing contract: the `swift test` gate, fixtures, simulator XCUITest, env-gated real-engine runs, and the real-device checklist |
 
 Tracking: [MAK-51](https://linear.app/maksym-naboka/issue/MAK-51/strategic-bet-local-first-iosipados-companion-on-device-dictation)
 

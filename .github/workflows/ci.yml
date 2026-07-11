@@ -21,6 +21,17 @@ jobs:
       - name: swift test
         run: ./scripts/test.sh
 
+  # Fixture integrity gate: the checked-in audio fixtures are well-formed
+  # (16 kHz/mono/16-bit + a .txt sidecar each) and the required set is present.
+  # Pure python3 — no macOS `say`/`afconvert` needed, so it's fast and portable.
+  fixtures:
+    name: fixture integrity
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fixtures
+        run: ./scripts/check-fixtures.sh
+
   # Unsigned simulator build of all three product targets (needs only the SDK,
   # a generic destination — no booted simulator, no signing team).
   simulator-build:
@@ -34,3 +45,32 @@ jobs:
         run: brew install xcodegen
       - name: Build all targets (unsigned, simulator)
         run: ./scripts/build-sim.sh
+
+  # Simulator XCUITest smoke — a SEPARATE job so a UI-test flake is attributable
+  # and never masks a logic regression in package-tests. Boots a simulator on the
+  # runner and runs both UI-test suites (host-app launch/home smoke + system-
+  # keyboard typing). Our keyboard extension is NOT enabled here (that path is a
+  # real-device checklist — see docs/TESTING.md).
+  simulator-uitest:
+    name: simulator XCUITest smoke
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Run XCUITest suites on a booted simulator
+        # Device/OS are overridable so the workflow tracks whatever runtime the
+        # runner image ships (falls back inside the script if unavailable).
+        env:
+          OPENWHISP_SIM_DEVICE: iPhone 17
+          OPENWHISP_SIM_OS: "26.5"
+        run: ./scripts/uitest.sh
+      - name: Upload xcresults on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uitest-xcresults
+          path: .build/uitest-results/**
+          if-no-files-found: ignore
