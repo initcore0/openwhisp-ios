@@ -38,7 +38,9 @@ WP3 and WP4 can run in parallel after their prereqs.
   `RefineFlow`, `InstructionChain`, `RefineOutputGuard`, `DictationSession` types,
   `AudioCapture`, `TextOutput` (enums only — protocol itself is mac-shaped, see note),
   `TranscriptionEngine` protocols, `WhisperKitModelCatalog`, `WhisperKitBridge`'s
-  pure mapper, `SecretStore`.
+  pure mapper, `SecretStore`, and the Parakeet core types (`ParakeetCatalog`,
+  `ParakeetLanguageGate`, `ParakeetLanguageHint`, `ParakeetDownloadState`/policy,
+  `StreamingRoutePolicy`, `AgentEouAutoStop`).
 - Platform-guard mac-isms inside core files: `CoreAudio.AudioDeviceID` in
   `WhisperKitBridge`/`StreamingTranscriptionEngine.selectDevice` → introduce
   `public typealias AudioDeviceHandle` (`AudioDeviceID` on macOS, `String`
@@ -123,8 +125,18 @@ section that updates ARCHITECTURE §5 (hero viable? mic-key behavior?).
 
 - `IOSAudioCapture: AudioCapture` (AVAudioSession `.playAndRecord` +
   AVAudioEngine tap, route/interruption handling, VAD/RMS reusing core math).
+- `ParakeetMobileEngine: StreamingTranscriptionEngine` (FluidAudio; default
+  variant `nemotron-multilingual-1120ms`, English fast path
+  `parakeet-unified-320ms`) + `ParakeetMobileFileEngine` (TDT v3) — the
+  PRIMARY engine per D5, reusing the upstream Parakeet core types.
 - `WhisperKitMobileEngine: StreamingTranscriptionEngine` (+ file engine for
-  fixtures), reusing `WhisperKitBridge`/`WhisperKitModelCatalog`.
+  fixtures), reusing `WhisperKitBridge`/`WhisperKitModelCatalog` — secondary,
+  ~100-language long tail.
+- **Engine Lab** (debug screen in the host app): engine/variant picker, live
+  dictation and fixture-WAV runs, side-by-side comparison against an
+  `AppleSpeechBaselineEngine` (SFSpeechRecognizer/SpeechAnalyzer, baseline
+  only), with per-run metrics (latency, RTF, peak RSS, WER vs. reference
+  text) — this is how "better than Apple" gets measured, by us and by users.
 - `ModelProvisioning` conformer + model manager UI (download/delete/progress;
   decide bundled-`tiny` vs download-on-first-run after measuring app size).
 - `CaptureFlow` state machine (MobileCore) + `CaptureCoordinator` (CaptureKit)
