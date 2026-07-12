@@ -10,6 +10,39 @@ is peer-to-peer over your own Wi-Fi.
 
 ## Status
 
+**Drive your Mac (WP7) — remote dictate / refine / history over the paired link.**
+On top of WP6 sync, the phone now DRIVES the Mac's tools over the *same* paired
+TLS-PSK `BridgeSession`: **Settings → Your Mac** gains drive controls that call
+the Mac's existing `dictate` / `refine` / `history.list` / `status` verbs. The
+phone is "one more agent client" — the Mac routes it through the same per-peer
+consent + rate-limit path as any agent, so a declined scope / throttle / busy
+mic / stale LLM surfaces as an explicit UI state, never a silent no-op. Remote
+dictate captures on the *Mac's* mic and shows the returned text ("listening on
+your Mac…"); **Answer a question by voice** is the same `dictate(prompt:)` call —
+the Mac shows its agent-question overlay + TTS and returns your spoken answer, so
+**no new verb** is needed. Remote history is a read-only browse. Foreground-only,
+like sync (each call opens a fresh session, runs off-main, closes it), and
+fail-to-journal.
+
+What's in place for remote-drive:
+
+- **`SyncCore`** (pure, in the `swift test` gate) — `RemoteMacError` (+ the total
+  `BridgeWire.ErrorCode → RemoteMacError` mapping), `RemoteHistoryItem` (wire DTO
+  → display row), and `RemoteDictationPhase` (the "listening on your Mac…"
+  lifecycle).
+- **`SyncKit`** (OS-bound, thin) — `RemoteMacClient`: `remoteStatus` /
+  `remoteDictate` / `remoteStopDictation` / `remoteRefine` / `remoteHistory` over
+  a `BridgeSession` obtained from the SAME `BonjourPeerTransport.connect` sync
+  uses (no duplicated PSK/Keychain logic). Every throw maps to a `RemoteMacError`.
+- **Host app** — `RemoteMacCoordinator` (foreground-only, journal) + the Your Mac
+  drive section (dictate, answer-by-voice, refine, history browse), each with
+  explicit consent-denied / rate-limited / Mac-busy / not-paired / offline states.
+- **Tests** — pure mapping (every error code; history DTO edge cases; dictate
+  fold) + `RemoteMacClient` round-trips/error-surfacing against an in-process fake
+  + real-NDJSON-framing loopback (Tier 1); an env-gated real-TLS drive tier
+  against the Mac harness (`OPENWHISP_REMOTE_E2E=1`, Tier 3c, self-skips); and an
+  XCUITest for the drive section (not-paired empty state + stubbed drive output).
+
 **P2P sync (WP6) — pairing, TLS-PSK transport, SyncEngine.** On top of the WP5
 dictation handoff, the phone now syncs its vocabulary, history, profiles, and
 modes with a paired Mac over the LAN — the Agent Bridge wire (NDJSON JSON-RPC)
