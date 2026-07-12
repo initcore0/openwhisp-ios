@@ -18,7 +18,11 @@ public final class TCPBridgeSession: BridgeSession {
         case notConnected
         case transport(String)
         case undecodable(String)
-        case domain(reason: BridgeWire.ErrorCode?, message: String)
+        /// A wire-level error. Carries the FULL `ErrorData` (not just the reason)
+        /// so downstream mapping can surface `retryAfterSeconds` on a rate-limit
+        /// and `originalText` on a failed refine — dropping them here silently
+        /// blanks those UI details.
+        case domain(reason: BridgeWire.ErrorCode?, message: String, data: BridgeWire.ErrorData?)
         case unsupportedVersion
     }
 
@@ -59,7 +63,8 @@ public final class TCPBridgeSession: BridgeSession {
         guard result.capabilities.contains(BridgeWire.Capability.sync) else {
             throw SessionError.domain(
                 reason: .unknownMethod,
-                message: "paired Mac does not offer the 'sync' capability (update OpenWhisp on the Mac)")
+                message: "paired Mac does not offer the 'sync' capability (update OpenWhisp on the Mac)",
+                data: nil)
         }
     }
 
@@ -82,7 +87,7 @@ public final class TCPBridgeSession: BridgeSession {
             let resp = try JSONDecoder().decode(ResponseEnvelope<R>.self, from: line)
             if let err = resp.error {
                 if err.data?.reason == .unsupportedVersion { throw SessionError.unsupportedVersion }
-                throw SessionError.domain(reason: err.data?.reason, message: err.message)
+                throw SessionError.domain(reason: err.data?.reason, message: err.message, data: err.data)
             }
             guard let result = resp.result else {
                 throw SessionError.undecodable("response had neither result nor error")

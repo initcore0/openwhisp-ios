@@ -92,7 +92,7 @@ private final class StubDriveSession: BridgeSession {
                     appBundleID: nil, appName: "Mail", initiator: "agent"),
             ])
         default:
-            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "stub: \(method)")
+            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "stub: \(method)", data: nil)
         }
         guard let typed = result as? R else {
             throw TCPBridgeSession.SessionError.undecodable("stub had no result for \(method)")

@@ -161,8 +161,14 @@ public final class RemoteMacClient {
                 return .macError(message: "Unexpected response from your Mac: \(m)")
             case .unsupportedVersion:
                 return .unsupportedVersion
-            case .domain(let reason, let message):
-                return RemoteMacError.from(bridgeCode: reason, message: message)
+            case .domain(let reason, let message, let data):
+                // Thread the FULL ErrorData so retryAfterSeconds (rate limit) and
+                // originalText (failed refine) survive the live transport, matching
+                // the fake-session path that already routes through the wire error.
+                return RemoteMacError.from(
+                    bridgeCode: reason, message: message,
+                    retryAfterSeconds: data?.retryAfterSeconds,
+                    originalText: data?.originalText)
             }
         case let e as BonjourPeerTransport.TransportError:
             switch e {

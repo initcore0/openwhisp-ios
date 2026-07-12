@@ -22,7 +22,30 @@ final class FakeBridgeSession: BridgeSession {
     /// If set for a method, that call throws this domain error instead of
     /// returning a result — the same shape `TCPBridgeSession` raises on a bridge
     /// refusal.
-    var domainErrors: [String: (reason: BridgeWire.ErrorCode?, message: String)] = [:]
+    // Full ErrorObject so a test can seed retryAfterSeconds / originalText and
+    // prove the live-path mapping threads them (not just reason + message).
+    var domainErrors: [String: BridgeWire.ErrorObject] = [:]
+
+    /// Seed a domain error for `method`. `retryAfterSeconds`/`originalText`
+    /// populate the wire `ErrorData` so the live mapping path can be exercised.
+    func setDomainError(
+        _ method: String, reason: BridgeWire.ErrorCode?, message: String,
+        retryAfterSeconds: Int? = nil, originalText: String? = nil
+    ) {
+        // `.domain` requires a non-optional reason; a nil reason (an untyped
+        // server error) is built directly so the data still rides along.
+        if let reason {
+            domainErrors[method] = BridgeWire.ErrorObject.domain(
+                reason, message: message,
+                originalText: originalText, retryAfterSeconds: retryAfterSeconds)
+        } else {
+            domainErrors[method] = BridgeWire.ErrorObject(
+                code: BridgeWire.ErrorObject.serverError,
+                message: message,
+                data: BridgeWire.ErrorData(
+                    reason: nil, originalText: originalText, retryAfterSeconds: retryAfterSeconds))
+        }
+    }
 
     /// Records every method called, in order, for assertions.
     private(set) var calls: [String] = []
@@ -45,7 +68,8 @@ final class FakeBridgeSession: BridgeSession {
         calls.append(method)
 
         if let err = domainErrors[method] {
-            throw TCPBridgeSession.SessionError.domain(reason: err.reason, message: err.message)
+            throw TCPBridgeSession.SessionError.domain(
+                reason: err.data?.reason, message: err.message, data: err.data)
         }
 
         // Capture params by round-tripping through JSON (exercises the same
@@ -71,7 +95,7 @@ final class FakeBridgeSession: BridgeSession {
         case BridgeWire.Method.refine.rawValue:       result = refineResult
         case BridgeWire.Method.historyList.rawValue:  result = historyResult
         default:
-            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "unknown method \(method)")
+            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "unknown method \(method)", data: nil)
         }
 
         guard let typed = result as? R else {

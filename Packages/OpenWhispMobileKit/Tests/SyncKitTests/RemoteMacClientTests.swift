@@ -82,7 +82,7 @@ final class RemoteMacClientTests: XCTestCase {
 
     func testConsentDeniedSurfaces() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.dictate.rawValue] = (.consentDenied, "user declined")
+        s.setDomainError(BridgeWire.Method.dictate.rawValue, reason: .consentDenied, message: "user declined")
         XCTAssertThrowsError(try client(s).remoteDictate(prompt: "hi")) { error in
             XCTAssertEqual(error as? RemoteMacError, .consentDenied)
         }
@@ -90,32 +90,35 @@ final class RemoteMacClientTests: XCTestCase {
 
     func testBusySurfaces() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.dictate.rawValue] = (.busy, "already dictating")
+        s.setDomainError(BridgeWire.Method.dictate.rawValue, reason: .busy, message: "already dictating")
         XCTAssertThrowsError(try client(s).remoteDictate()) { error in
             XCTAssertEqual(error as? RemoteMacError, .macBusy)
         }
     }
 
-    func testRateLimitedSurfaces() {
+    func testRateLimitedSurfacesWithRetryAfterFromWire() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.dictate.rawValue] = (.rateLimited, "throttled")
+        // Seed retryAfterSeconds on the wire error; it MUST survive the live
+        // (SessionError.domain) path to the RemoteMacError — the WP7 review fix.
+        s.setDomainError(BridgeWire.Method.dictate.rawValue,
+                         reason: .rateLimited, message: "throttled", retryAfterSeconds: 42)
         XCTAssertThrowsError(try client(s).remoteDictate()) { error in
-            // retryAfter is not carried by the fake's simple domain path; nil is fine.
-            XCTAssertEqual(error as? RemoteMacError, .rateLimited(retryAfterSeconds: nil))
+            XCTAssertEqual(error as? RemoteMacError, .rateLimited(retryAfterSeconds: 42))
         }
     }
 
-    func testLLMUnavailableSurfacesOnRefine() {
+    func testLLMUnavailableSurfacesOriginalTextFromWire() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.refine.rawValue] = (.llmUnavailable, "no model")
-        XCTAssertThrowsError(try client(s).remoteRefine(text: "x", instruction: "y")) { error in
-            XCTAssertEqual(error as? RemoteMacError, .llmUnavailable(originalText: nil))
+        s.setDomainError(BridgeWire.Method.refine.rawValue,
+                         reason: .llmUnavailable, message: "no model", originalText: "keep this")
+        XCTAssertThrowsError(try client(s).remoteRefine(text: "keep this", instruction: "y")) { error in
+            XCTAssertEqual(error as? RemoteMacError, .llmUnavailable(originalText: "keep this"))
         }
     }
 
     func testHistoryDisabledSurfaces() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.historyList.rawValue] = (.historyDisabled, "off")
+        s.setDomainError(BridgeWire.Method.historyList.rawValue, reason: .historyDisabled, message: "off")
         XCTAssertThrowsError(try client(s).remoteHistory()) { error in
             XCTAssertEqual(error as? RemoteMacError, .historyDisabled)
         }
@@ -123,7 +126,7 @@ final class RemoteMacClientTests: XCTestCase {
 
     func testSecureFieldSurfacesOnDictate() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.dictate.rawValue] = (.secureField, "password field focused")
+        s.setDomainError(BridgeWire.Method.dictate.rawValue, reason: .secureField, message: "password field focused")
         XCTAssertThrowsError(try client(s).remoteDictate()) { error in
             XCTAssertEqual(error as? RemoteMacError, .secureField)
         }
@@ -151,7 +154,7 @@ final class RemoteMacClientTests: XCTestCase {
 
     func testUnsupportedVersionSurfaces() {
         let s = FakeBridgeSession()
-        s.domainErrors[BridgeWire.Method.status.rawValue] = (nil, "old")
+        s.setDomainError(BridgeWire.Method.status.rawValue, reason: nil, message: "old")
         // A nil reason with the unsupportedVersion SessionError path is separate;
         // here nil reason → macError. Verify the dedicated version error instead:
         let client = RemoteMacClient(sessionProvider: {
