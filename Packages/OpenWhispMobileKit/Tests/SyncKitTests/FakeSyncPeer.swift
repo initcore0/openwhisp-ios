@@ -52,7 +52,7 @@ final class FakeSyncPeer: BridgeSession {
             return try decode(pushResult(p), as: R.self)
 
         default:
-            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "unknown \(method)")
+            throw TCPBridgeSession.SessionError.domain(reason: .unknownMethod, message: "unknown \(method)", data: nil)
         }
     }
 

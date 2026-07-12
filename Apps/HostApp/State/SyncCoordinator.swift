@@ -166,7 +166,7 @@ final class SyncCoordinator: ObservableObject {
             case .notConnected: return "Not connected."
             case .transport(let m): return "Connection problem: \(m)"
             case .undecodable(let m): return "Unexpected response: \(m)"
-            case .domain(_, let m): return m
+            case .domain(_, let m, _): return m
             case .unsupportedVersion: return "Your Mac's OpenWhisp is too old to sync. Update it."
             }
         }

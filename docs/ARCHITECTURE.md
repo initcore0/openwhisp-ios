@@ -426,13 +426,34 @@ upstream schema addition, WP0b, schema v3 with v2 decode fallback.)
 
 ### 6.6 MCP (SyncKit + upstream BridgeKit)
 
-- **Phone → Mac (WP7):** the phone's MCP client drives the Mac's existing
-  `openwhisp_dictate` / `openwhisp_refine` / `openwhisp_history` over the
-  paired `BridgeSession`. Reuses the bridge's consent model verbatim; the Mac
-  treats the phone as one more agent client (scoped consent, rate limits).
-- **Agent-asks-human-by-voice:** Mac bridge surfaces an agent question → push
-  path is out of scope for v1 (needs a server); v1 = the phone shows it when
-  the app is open / via Live Activity while a paired session is active.
+**Status: WP7 SHIPPED.** The phone drives the Mac's tools over the paired link.
+
+- **Phone → Mac (WP7 — done):** `RemoteMacClient` (SyncKit) drives the Mac's
+  existing `status` / `dictate` / `dictate.stop` / `refine` / `history.list`
+  verbs over the SAME `BridgeSession` sync uses — a handshaked TLS-PSK
+  `NWConnection` from `BonjourPeerTransport.connect(to:psk:clientName:)`, the
+  identical path `SyncCoordinator` takes. **No new transport, no MCP SDK, no
+  server-side work:** the Mac's `LANBridgeServer` already routes phone traffic
+  through the same per-peer `AgentScope` consent (dictate/history/refine/sync)
+  and `AgentRateLimiter`. The phone is "one more agent client." A denied scope /
+  throttle / busy mic / stale LLM comes back as a `BridgeWire` domain error
+  (`consentDenied`, `rateLimited`, `busy`, `timeout`, `micPermissionNeeded`,
+  `secureField`, `llmUnavailable`, `cloudRefineDisabled`, `historyDisabled`),
+  which the pure `RemoteMacError.from(...)` maps to an explicit UI state — never
+  a silent failure.
+- **Voice-answer-to-agent — NO new verb:** an agent question IS just
+  `dictate(prompt: "<question>")`. The Mac shows its agent-question overlay (+
+  optional TTS) and returns the human's spoken answer in `DictateResult.text`.
+  So "the Mac asks, I answer by voice from the phone" = call `dictate` with a
+  prompt and display the returned text. The Settings → Your Mac drive surface
+  exposes this as "Answer a question by voice."
+- **Layering.** The OS-bound `RemoteMacClient` stays thin; every decision — wire
+  error → `RemoteMacError`, `HistoryEntryDTO` → `RemoteHistoryItem`,
+  dictate-state fold — lives in the pure, `swift test`-covered `SyncCore` layer.
+- **Foreground-only** (like sync): each drive call opens a fresh TLS-PSK session,
+  runs off-main, and closes it. iOS tears down the socket within ~30s of
+  backgrounding, so the drive controls are meant to be used while the app is
+  open. `RemoteMacCoordinator` fails-silent-to-journal exactly as sync does.
 - **Foreground-only phone MCP server (post-v1):** Streamable HTTP via the MCP
   Swift SDK while the app is open — "lend the phone's mic to an agent" mode.
 

@@ -18,6 +18,11 @@ struct YourMacView: View {
                 ForEach(sync.pairedPeers) { peer in
                     pairedCard(peer)
                 }
+                // Drive controls (WP7) as top-level Form sections — kept OUT of the
+                // paired-card ForEach so the Form flattens each Section correctly.
+                ForEach(sync.pairedPeers) { peer in
+                    RemoteMacDriveView(peer: peer)
+                }
                 pairAnotherSection
             }
 

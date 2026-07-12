@@ -18,6 +18,7 @@ fast deterministic logic tests first, real hardware/engines last.
 | **2. Simulator XCUITest** | The app bundle builds, installs, launches, and renders; text entry works via the system keyboard. | `./scripts/uitest.sh` | **CI (separate job)** + local |
 | **3. Env-gated real-engine runs** | Real Parakeet/WhisperKit engines transcribe `fixtures/audio/*.wav` on a simulator (loose WER). Downloads models on first run. | `./scripts/e2e-engines-sim.sh` (the script opens the gate itself) | **Local / nightly (not blocking)** |
 | **3b. Sync loopback (real TLS)** | The `SyncEngine` runs a full manifest → plan → pull/push → apply over a **real TLS-PSK `NWConnection`** to the Mac loopback harness on `127.0.0.1`; asserts vocab/history merge both ways and a second sync is a no-op. Self-skips without the harness. | `OPENWHISP_SYNC_E2E=1` + the mac repo's `scripts/sync-loopback-server.sh`, then `./scripts/test.sh` | **Local / integration (not blocking)** |
+| **3c. Remote-drive loopback (WP7, real TLS)** | `RemoteMacClient` drives `status`/`dictate`/`refine`/`history.list` over the **same real TLS-PSK wire** to the Mac loopback harness; asserts every call resolves or surfaces a mapped `RemoteMacError`. The sync-only harness stubs the drive verbs, so real captured/refined text needs a real Mac. Self-skips without the harness. | `OPENWHISP_REMOTE_E2E=1` + `scripts/sync-loopback-server.sh`, then `./scripts/test.sh` | **Local / integration (not blocking)** |
 | **4. Real-device checklist** | Hero-flow spikes, memory/latency/thermals, keyboard-extension enablement, cross-device sync — things a simulator cannot prove. | Manual (see below) | Human, pre-release |
 
 ### Tier 1 — the `swift test` gate
@@ -168,6 +169,49 @@ TLS-PSK listener and prove the handshake + a wrong-key rejection) cover the wire
 > platform wires external PSK through it. Either way the posture is mutual-PSK
 > auth, ephemeral-DH forward secrecy, no CA, nothing readable pre-handshake — see
 > `SyncKit/TLSPSK.swift`.
+
+### Tier 3c — remote-drive loopback (WP7, real TLS-PSK, no Mac needed)
+
+The WP7 "drive your Mac" verbs — `status` / `dictate` / `dictate.stop` /
+`refine` / `history.list` — are covered at Tier 1 for **logic** (pure mapping in
+`SyncCoreTests/RemoteMacErrorTests` + `RemoteMacModelsTests`; `RemoteMacClient`
+round-trips + error surfacing against the in-process fake in
+`SyncKitTests/RemoteMacClientTests`; real NDJSON framing over loopback in
+`RemoteDriveFramingTests`). Tier 3c drives those verbs through the real
+`RemoteMacClient` over a **real TLS-PSK `NWConnection`** to the Mac loopback
+harness — the same harness the sync tier uses.
+
+```sh
+# In the openwhisp (mac) repo — start the harness (prints READY):
+OPENWHISP_SYNC_PSK="$(openssl rand -base64 32)" \
+OPENWHISP_SYNC_PORT=8770 \
+  ./scripts/sync-loopback-server.sh
+
+# In this repo — point the gated test at it and run the package suite:
+OPENWHISP_REMOTE_E2E=1 \
+OPENWHISP_SYNC_PSK="<same base64 psk>" \
+OPENWHISP_SYNC_PORT=8770 \
+  ./scripts/test.sh
+```
+
+Without `OPENWHISP_REMOTE_E2E=1` (or the harness), `RemoteMacLoopbackE2ETests`
+**self-skips** cleanly.
+
+> **What this tier proves — verified against the real harness.** The TLS-PSK
+> handshake + `bridge.hello` succeed and the drive verbs travel the same wire as
+> sync. **But the standalone loopback harness only wires the real SYNC verbs** —
+> its `LoopbackHost` stubs the drive verbs (dictate → `internalError`, refine →
+> `llmUnavailable`, history → empty) and pre-consents only the `sync` scope, so
+> `dictate`/`refine`/`history.list` return a `consentDenied`/`llmUnavailable`
+> domain error that the client surfaces as a mapped `RemoteMacError`. It
+> therefore CANNOT prove real captured/refined **text** — that needs a real
+> paired Mac. (Observed too: the harness's standalone main-thread bridge
+> intermittently drops the connection under the drive tier's rapid
+> open→call→close-per-verb; the client correctly reports that as
+> `RemoteMacError.unreachable`.) So this tier asserts the **robust invariant** —
+> every drive call resolves to a value OR a mapped `RemoteMacError`, never an
+> unmapped throw — rather than pinning a server outcome the sync-only harness
+> can't guarantee.
 
 ### Tier 4 — real-device checklist (manual, pre-release)
 
