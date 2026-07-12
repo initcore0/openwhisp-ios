@@ -87,6 +87,21 @@ targets:
         NSBonjourServices:
           - _openwhisp._tcp
         NSSupportsLiveActivities: true
+        # Background audio is REQUIRED for the dictation handoff, for two reasons:
+        #   1. Hero flow (ARCHITECTURE §5.1): `AudioRecordingIntent` may start capture
+        #      while the app is backgrounded/not-frontmost — impossible without the
+        #      `audio` background mode (the AVAudioSession can't stay active).
+        #   2. Floor flow CONTINUATION [C10]: even a FOREGROUND-started dictation must
+        #      survive the user switching back to their target app before transcription
+        #      finishes. iOS only lets a foreground-started capture CONTINUE in the
+        #      background when the app declares the `audio` background mode; without it
+        #      the session is torn down the instant the app resigns active and the
+        #      half-finished dictation is lost.
+        # App Review note: OpenWhisp keeps recording only to finish a dictation the
+        # user explicitly started, so the transcript can be handed to the keyboard
+        # after they return to their app. It is not a background-listening feature.
+        UIBackgroundModes:
+          - audio
     entitlements:
       path: Apps/HostApp/OpenWhisp.entitlements
       properties:

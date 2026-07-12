@@ -66,8 +66,18 @@ struct StartDictationIntent: AudioRecordingIntent {
 
 /// Stops the in-flight dictation capture (still transcribes + publishes). Fired by
 /// the Live Activity's Stop button and available in Shortcuts.
+///
+/// MUST conform to `LiveActivityIntent`, not plain `AppIntent`. The Stop button
+/// lives in the WIDGET EXTENSION's Live Activity UI (`Button(intent:)`). A plain
+/// `AppIntent` fired from there runs `perform()` in the WIDGET process, where
+/// `IntentDictationBridge` has no handlers installed (only the host app installs
+/// them) — so stop would be a silent no-op. `LiveActivityIntent` is the sanctioned
+/// conformance that makes the system run `perform()` in the APP's process, where the
+/// bridge's `stopHandler` reaches the live `IntentCaptureController`. (This mirrors
+/// why `StartDictationIntent` is an `AudioRecordingIntent` — that protocol likewise
+/// runs in the app process so it can drive `AVAudioEngine`.)
 @available(iOS 18.0, *)
-struct StopDictationIntent: AppIntent {
+struct StopDictationIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Stop OpenWhisp Dictation"
     static var description = IntentDescription("Stop the current dictation and insert the text.")
 
@@ -95,7 +105,15 @@ final class IntentDictationBridge {
     var beginHandler: (() async -> Bool)?
     /// Installed by the host app; stops the live capture.
     var stopHandler: (() async -> Void)?
-    /// Installed by the host app; brings the app forward + shows the sheet.
+    /// Installed by the host app; ROUTES the dictation sheet to be presented (sets
+    /// the `DictationRouter`'s pending sheet). It does NOT — and cannot — foreground
+    /// the app: a non-`openAppWhenRun` intent (this is one, deliberately, so the hero
+    /// flow doesn't app-switch) has no API to bring the app to the front from inside
+    /// `perform()`. So this only helps when the app is ALREADY foreground (e.g. a
+    /// Shortcut the user runs from within OpenWhisp): the sheet then appears on
+    /// screen. If the app is backgrounded, the sheet is queued but stays invisible
+    /// until the user opens OpenWhisp themselves — which is the R0a degradation the
+    /// tier-4 checklist measures, and why the hero copy warns the user accordingly.
     var openAppHandler: (() async -> Void)?
 
     /// Whether the app is reachable in THIS process to present the sheet (its

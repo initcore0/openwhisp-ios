@@ -156,6 +156,18 @@ returns whether capture reached a live state; when it returns false the intent
 degrades to opening the app (the floor sheet). Record verbatim pass/fail per cell
 into `docs/SPIKE_RESULTS.md`.
 
+The host app now declares `UIBackgroundModes: [audio]` (project.yml). That changes
+what this matrix expects:
+
+- **Background CONTINUATION is now expected to WORK** and is no longer an R0a
+  unknown. A dictation STARTED in the foreground (floor flow, or a hero start while
+  frontmost) must keep capturing + finish transcribing after the user switches back
+  to their target app. Verify this explicitly (see the "continuation" row below); a
+  failure here is now a bug, not an accepted degradation.
+- **Background/not-running START** remains the R0a unknown: whether an
+  `AudioRecordingIntent` can *begin* `AVAudioEngine` capture from a background or
+  cold-launched process is what only a device run settles.
+
 **R0a — `AudioRecordingIntent` capture-start matrix.** For each cell: press the
 trigger, then observe — did capture start (Live Activity shows "Listening…", a
 transcript later lands in the App Group), or did it degrade to opening the app, or
@@ -164,20 +176,30 @@ fail silently? Note the failure mode verbatim.
 | App state \ Trigger | Action button | Control Center | Shortcuts app |
 |---|---|---|---|
 | **Foregrounded** | ☐ | ☐ | ☐ |
-| **Backgrounded** | ☐ | ☐ | ☐ |
-| **Not running** | ☐ | ☐ | ☐ |
+| **Backgrounded (START)** | ☐ | ☐ | ☐ |
+| **Not running (START)** | ☐ | ☐ | ☐ |
+| **Foreground start → background CONTINUATION** (switch away mid-capture; expect it FINISHES) | ☐ | ☐ | ☐ |
 
 For each cell capture, per trial: (1) did `StartDictationIntent` run? (2) did
 `AVAudioEngine` capture actually start (or was session activation denied in the
 background)? (3) did the Live Activity appear? (4) did the transcript publish? (5)
-if start failed, did the `openAppWhenRun` fallback open the app + present the
-dictation sheet? *Gate:* if background/not-running start fails on a surface, the
+if start failed, what did the degradation actually look like? Be honest here: the
+bridge's open-app fallback only ROUTES the dictation sheet — it cannot foreground
+the app (there is no iOS-18 API for a non-`openAppWhenRun` intent to do so). So
+expect: app already foreground → the sheet appears; app backgrounded → the sheet is
+queued invisibly and only shows when the user next opens OpenWhisp themselves.
+Record which of those each failed cell exhibited. *Gate:* if background/not-running START fails on a surface, the
 hero copy for that surface degrades to "opens OpenWhisp to dictate" (the floor
-flow); update `ARCHITECTURE.md` §5's hero-status line with what actually holds.
+flow); update `ARCHITECTURE.md` §5's hero-status line with what actually holds. The
+CONTINUATION row is a hard pass expectation now that `UIBackgroundModes: [audio]`
+is declared — if it fails, the background-audio entitlement is not taking effect.
 
 Also verify: **mic-permission-denied** start (should return false → open app to
 resolve), and the **Live Activity Stop button** ends capture + publishes (fires
-`StopDictationIntent` → `IntentDictationBridge.stop()`).
+`StopDictationIntent` → `IntentDictationBridge.stop()`). Because `StopDictationIntent`
+conforms to `LiveActivityIntent`, its `perform()` runs in the APP process (where the
+bridge handlers live), not the widget process — confirm the tap actually stops the
+live capture and doesn't no-op.
 
 **R0b — keyboard→host trigger.** (a) Walk the manual app-switch UX end to end:
 keyboard mic key → user opens OpenWhisp (or a Shortcut fires `openwhisp://dictate`)

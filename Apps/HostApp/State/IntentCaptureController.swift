@@ -24,6 +24,9 @@ final class IntentCaptureController {
     private let settings: AppSettings
     private var coordinator: CaptureCoordinator?
     private var environment: HandoffEnvironment?
+    /// The last raw (pre-cleaner) final, so the history entry carries the same
+    /// `rawText` the sheet path records.
+    private var lastRawFinal: String = ""
 
     /// Set by the app so the intent's open-app fallback can present the sheet.
     var onRequestOpenApp: (() -> Void)?
@@ -31,8 +34,10 @@ final class IntentCaptureController {
     private init() {
         // Reads UserDefaults, so it agrees with the app's settings even though it's
         // a distinct instance (the intent may run before the app's @StateObjects
-        // exist). History is not appended on the background intent path — the
-        // transcript still lands in the App Group and the keyboard inserts it.
+        // exist). On publish, the transcript is appended to the SAME history store
+        // (via `HistoryStore.appendToStore`) so hero-path dictations reach in-app
+        // History with parity to the composer + sheet paths — while ALSO landing in
+        // the App Group for the keyboard to insert.
         self.settings = AppSettings()
         self.environment = HandoffEnvironment.live()
     }
@@ -70,10 +75,15 @@ final class IntentCaptureController {
             cleanerConfig: settings.cleanerConfig(),
             language: settings.languageHint
         )
-        coordinator.onStateChange = { state in
+        lastRawFinal = ""
+        coordinator.onRawFinal = { [weak self] raw in self?.lastRawFinal = raw }
+        coordinator.onStateChange = { [weak self] state in
             Task { @MainActor in
                 LiveActivityController.shared.update(DictationActivityState.from(state))
-                if case .published = state { LiveActivityController.shared.finish() }
+                if case .published(let id) = state {
+                    self?.appendHistory(publishedID: id)
+                    LiveActivityController.shared.finish()
+                }
                 if case .failed = state { LiveActivityController.shared.end() }
             }
         }
@@ -92,6 +102,19 @@ final class IntentCaptureController {
             LiveActivityController.shared.end()
             return false
         }
+    }
+
+    /// Read the just-published cleaned transcript back and append it to History so
+    /// the hero path has parity with the composer + sheet paths. `peek()` (not
+    /// consume) keeps the keyboard as the single consumer of the pending transcript.
+    private func appendHistory(publishedID: UUID) {
+        guard let environment else { return }
+        let pending = try? environment.store.peek()
+        guard let pending, pending.id == publishedID else { return }
+        HistoryStore.appendToStore(
+            text: pending.text,
+            rawText: lastRawFinal.isEmpty ? nil : lastRawFinal
+        )
     }
 }
 

@@ -190,6 +190,17 @@ struct DictationSheet: View {
 
     private func scheduleAutoDismiss() {
         dismissWork?.cancel()
+        #if DEBUG
+        // UI-test determinism: a slow CI runner can miss the 2.5s post-publish window
+        // and fail the sheet-UI assertion. When launched with
+        // `-openwhisp-uitest-no-autodismiss`, keep the published sheet up so the test
+        // can assert on the transient UI regardless of runner speed. The durable
+        // outcome (App Group store) is asserted separately, so this only affects the
+        // UI-visibility assertion. Never set in production.
+        if ProcessInfo.processInfo.arguments.contains("-openwhisp-uitest-no-autodismiss") {
+            return
+        }
+        #endif
         let work = DispatchWorkItem { dismiss() }
         dismissWork = work
         // A beat so the user reads the "return to your app" hint before it closes.
