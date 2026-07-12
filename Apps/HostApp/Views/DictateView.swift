@@ -8,6 +8,7 @@ import Combine
 struct DictateView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var router: DictationRouter
     @StateObject private var vm: CaptureViewModelHolder = CaptureViewModelHolder()
     @State private var showCopied = false
 
@@ -55,6 +56,7 @@ struct DictateView: View {
 
             Spacer()
             recordButton(model)
+            dictateForAnotherAppButton(model)
         }
         .padding(.top)
         .toolbar {
@@ -134,6 +136,24 @@ struct DictateView: View {
         .padding(.bottom, 24)
         .accessibilityLabel(model.isBusy ? "Stop" : "Record")
         .accessibilityIdentifier("composer.record")
+    }
+
+    /// Opens the compact dictation SHEET that publishes to the App Group so the
+    /// keyboard can insert the result into whatever app you switch to next
+    /// (ARCHITECTURE §5.2 floor flow). Distinct from the composer's own record
+    /// button, which keeps the text in-app. Hidden while an in-app capture is busy.
+    @ViewBuilder
+    private func dictateForAnotherAppButton(_ model: CaptureViewModel) -> some View {
+        Button {
+            router.present(trigger: .keyboardHandoff)
+        } label: {
+            Label("Dictate for another app", systemImage: "keyboard.badge.ellipsis")
+                .font(.subheadline)
+        }
+        .buttonStyle(.bordered)
+        .disabled(model.isBusy)
+        .padding(.bottom, 16)
+        .accessibilityIdentifier("composer.dictateForAnotherApp")
     }
 
     private func statusColor(_ model: CaptureViewModel) -> Color {

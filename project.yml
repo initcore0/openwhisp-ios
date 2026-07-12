@@ -35,6 +35,10 @@ targets:
     platform: iOS
     sources:
       - path: Apps/HostApp
+      # Shared App Intents (hero flow): compiled into BOTH the host app and the
+      # widgets extension so the Live Activity + Control Center can reference the
+      # intent types (ARCHITECTURE §5.1).
+      - path: Apps/Shared/Intents
       # Engine Lab benchmark fixtures (WP3). Bundled as a folder reference under a
       # `Fixtures/` group so the app can resolve `<name>.wav` / `<name>.txt` by
       # `Bundle.main.url(...subdirectory: "Fixtures")`. To keep the RELEASE app size
@@ -51,6 +55,16 @@ targets:
       properties:
         CFBundleDisplayName: OpenWhisp
         UILaunchScreen: {}
+        # Floor-flow deep link (ARCHITECTURE §5.2): opening `openwhisp://dictate`
+        # presents the compact dictation sheet. Parsed by the tested `DeepLink`
+        # router. NOTE: the keyboard extension CANNOT open this URL [C9] — in
+        # production it is delivered by a user Shortcut / Home-Screen action; on the
+        # simulator by `xcrun simctl openurl booted openwhisp://dictate`.
+        CFBundleURLTypes:
+          - CFBundleURLName: app.openwhisp.ios.dictate
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - openwhisp
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         UISupportedInterfaceOrientations:
@@ -153,6 +167,9 @@ targets:
     platform: iOS
     sources:
       - path: Apps/WidgetsExtension
+      # Shared App Intents source (see the host app target). The widget references
+      # StartDictationIntent (Control Center) + StopDictationIntent (Live Activity).
+      - path: Apps/Shared/Intents
     info:
       path: Apps/WidgetsExtension/Info.plist
       properties:
@@ -173,6 +190,10 @@ targets:
         product: MobileCore
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
+      - sdk: AppIntents.framework
+      # ActivityKit: the widget renders the Live Activity; MobileCore's
+      # `DictationActivityAttributes` conforms to `ActivityAttributes`.
+      - sdk: ActivityKit.framework
 
   # MARK: - UI-test harness app (not shipped)
   # A tiny, dependency-free SwiftUI app that exists ONLY as a stable surface for
@@ -207,6 +228,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.uitests
         # UI-test runners are always signed for the simulator/device; keep them
         # unsigned-friendly for CI simulator runs.
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: OpenWhisp
+
+  # MARK: - UI tests: dictation handoff floor flow (targets the REAL host app)
+  # Drives the whole dictation-sheet handoff on the simulator with the DEBUG
+  # scripted fake engine (no mic/model). See Apps/UITests/Handoff.
+  DictationHandoffUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Apps/UITests/Handoff
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.openwhisp.ios.handoffuitests
         CODE_SIGNING_ALLOWED: NO
     dependencies:
       - target: OpenWhisp
@@ -259,6 +295,16 @@ schemes:
       config: Debug
       targets:
         - OpenWhispUITests
+  # Dictation-handoff floor flow against the real app (scripted fake engine).
+  DictationHandoffUITests:
+    build:
+      targets:
+        OpenWhisp: all
+        DictationHandoffUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - DictationHandoffUITests
   # System-keyboard typing against the dedicated harness app.
   UITestHostUITests:
     build:

@@ -69,13 +69,26 @@ The host app launched on an iPhone 17 (iOS 26.5) simulator via `run-sim.sh`:
 
 ![OpenWhisp host app on the simulator](assets/simulator-home.png)
 
-Two suites:
+Three suites:
 
 - **`OpenWhispUITests`** (`Apps/UITests/HostSmoke/`) — launches the **real host
   app** and asserts the placeholder home renders (nav title, the
   `LabeledContent` status/bundle/version rows). This is the end-to-end proof the
   bundle installs, links `OpenWhispMobileKit`, and reaches its first screen —
   the layer `swift test` can't cover.
+- **`DictationHandoffUITests`** (`Apps/UITests/Handoff/`) — drives the whole
+  **floor flow** (ARCHITECTURE §5.2) on the simulator with the DEBUG scripted fake
+  engine (`-openwhisp-uitest-fake-engine` + `-openwhisp-uitest-open-dictate`): the
+  compact **dictation sheet** appears, the fake finishes through the real
+  `SilenceAutoStop` path, and the sheet reaches the published/"return to your app"
+  state carrying the scripted transcript — no mic, no model, deterministic. The
+  REAL `openwhisp://dictate` URL delivery is exercised manually (see
+  `run-sim.sh` + the R0b checklist), which can't be made hermetic in XCUITest.
+
+  The dictation sheet driven by the deep-link route on an iPhone 17 (iOS 26.5)
+  simulator (scripted fake engine):
+
+  ![The dictation sheet](assets/dictation-sheet.png)
 - **`UITestHostUITests`** (`Apps/UITests/Typing/`) — types `Hello, world!` into a
   text field with the **system keyboard** and asserts it lands. It targets a
   tiny dedicated harness app (`Apps/UITests/Host/`, target `UITestHost`), not the
@@ -131,26 +144,55 @@ DEVELOPMENT_TEAM=XXXXXXXXXX xed .    # then Run on your iPhone in Xcode
 project carries the literal `${DEVELOPMENT_TEAM}` build setting, so Xcode only
 resolves a team when launched with the env var).
 
-#### WP2 R0 spike checklist (the risk burndown — run BEFORE hero-flow work)
+#### WP5 hero-flow device checklist (R0a/R0b/R0c — the unverifiable-on-simulator matrix)
 
-From [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) §WP2. Record verbatim
-pass/fail per cell into `docs/SPIKE_RESULTS.md`:
+WP5 ships the hero surfaces (App Intents + Live Activity + Control Center) and the
+floor flow. The simulator proves the floor flow end to end (Tier 2
+`DictationHandoffUITests`) and all the handoff logic (Tier 1). What ONLY a real
+device can prove is whether `AudioRecordingIntent` actually starts capture from
+each surface/app-state. The code is structured so **every cell below is testable**:
+`StartDictationIntent.perform()` calls `IntentDictationBridge.begin()`, which
+returns whether capture reached a live state; when it returns false the intent
+degrades to opening the app (the floor sheet). Record verbatim pass/fail per cell
+into `docs/SPIKE_RESULTS.md`.
 
-- **R0a — background capture-start.** A minimal `AudioRecordingIntent` starts
-  `AVAudioEngine` capture + a Live Activity. Matrix: app **foregrounded /
-  backgrounded / not running** × trigger **Action button / Control Center /
-  Shortcuts**. For each cell: did capture actually start? Record the failure
-  mode verbatim. *Gate:* if background-start fails, the hero flow degrades to the
-  app-switch floor flow and marketing copy adjusts.
-- **R0b — keyboard→host trigger.** (a) Walk the manual app-switch UX end to end.
-  (b) Test the responder-chain `openURL:` hack — does it compile and work on
-  iOS 18/26? Note the App-Review risk regardless of whether it works ([C9]).
-  *Gate:* decision recorded in `ARCHITECTURE.md` §5 before WP5.
-- **R0c — round-trip insert.** Publish a `PendingTranscript` from the host →
-  Darwin notification while the keyboard is live (measure insert latency + miss
-  rate over 20 trials); and App-Group read on keyboard reappear after an
-  app-switch (20 trials). *Gate:* confirms the store-read fallback + 120 s expiry
-  mitigations hold.
+**R0a — `AudioRecordingIntent` capture-start matrix.** For each cell: press the
+trigger, then observe — did capture start (Live Activity shows "Listening…", a
+transcript later lands in the App Group), or did it degrade to opening the app, or
+fail silently? Note the failure mode verbatim.
+
+| App state \ Trigger | Action button | Control Center | Shortcuts app |
+|---|---|---|---|
+| **Foregrounded** | ☐ | ☐ | ☐ |
+| **Backgrounded** | ☐ | ☐ | ☐ |
+| **Not running** | ☐ | ☐ | ☐ |
+
+For each cell capture, per trial: (1) did `StartDictationIntent` run? (2) did
+`AVAudioEngine` capture actually start (or was session activation denied in the
+background)? (3) did the Live Activity appear? (4) did the transcript publish? (5)
+if start failed, did the `openAppWhenRun` fallback open the app + present the
+dictation sheet? *Gate:* if background/not-running start fails on a surface, the
+hero copy for that surface degrades to "opens OpenWhisp to dictate" (the floor
+flow); update `ARCHITECTURE.md` §5's hero-status line with what actually holds.
+
+Also verify: **mic-permission-denied** start (should return false → open app to
+resolve), and the **Live Activity Stop button** ends capture + publishes (fires
+`StopDictationIntent` → `IntentDictationBridge.stop()`).
+
+**R0b — keyboard→host trigger.** (a) Walk the manual app-switch UX end to end:
+keyboard mic key → user opens OpenWhisp (or a Shortcut fires `openwhisp://dictate`)
+→ dictation sheet → speak → return via the back-breadcrumb → keyboard inserts on
+reappear. (b) Test the responder-chain `openURL:` hack — compiles/works on
+iOS 18/26? Note the App-Review risk regardless ([C9]). *Gate:* decision recorded in
+`ARCHITECTURE.md` §5.
+
+**R0c — round-trip insert.** Publish a `PendingTranscript` from the host →
+`DarwinHandoffNotifier` ping while the keyboard is live (measure insert latency +
+miss rate over 20 trials); and App-Group read on keyboard reappear after an
+app-switch (20 trials). Also confirm the coarse `FileSharedStateStore` capture
+state the host writes (`capturing`→`transcribing`→`idle`) is what the keyboard's
+mic key reads. *Gate:* confirms the store-read fallback + 120 s expiry mitigations
+hold.
 
 #### Keyboard-extension enablement (manual — the flaky path Tier 2 skips)
 

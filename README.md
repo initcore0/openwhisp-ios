@@ -10,25 +10,35 @@ is peer-to-peer over your own Wi-Fi.
 
 ## Status
 
-**Scaffold (WP1) — the repo builds and its tests are green.** The project
-structure, shared package, interface types, and empty-but-compiling app shells
-exist; feature code lands in later work packages (WP2+).
+**Dictation handoff (WP5) — floor flow end-to-end + hero surfaces.** On top of the
+WP3 host app (on-device composer + engine layer) and the WP1 scaffold, dictation
+now flows from the app to the keyboard through the App Group.
 
 What's in place:
 
 - **`Packages/OpenWhispMobileKit`** — the shared SwiftPM package. `MobileCore`
-  and `KeyboardCore` are Foundation-only and 100% unit-tested (the `swift test`
-  gate); `CaptureKit` and `SyncKit` are placeholder targets for the OS-bound
-  conformers (WP3/WP6). Interface types from [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-  §6 are defined with doc comments; the pure logic that already exists
-  (`CaptureFlow`, `MicKeyResolver`, `TranscriptInsertPolicy`,
-  `KeyboardLayoutModel`, `InMemoryHandoffStore`) is implemented and tested.
-- **`Apps/`** — the three targets: `OpenWhisp` (SwiftUI host app),
-  `OpenWhispKeyboard` (keyboard extension with a placeholder row), and
-  `OpenWhispWidgets` (widget stub).
+  and `KeyboardCore` are Foundation-only and unit-tested (the `swift test`
+  gate); `CaptureKit` holds the OS-bound engine + capture conformers. The pure
+  handoff/flow logic (`CaptureFlow`, `DeepLink`, `DictationActivityState`,
+  `AppGroupHandoffStore`, `MicKeyResolver`, `TranscriptInsertPolicy`) is
+  implemented and tested.
+- **Floor flow (ARCHITECTURE §5.2)** — the host registers the `openwhisp://` URL
+  scheme; `openwhisp://dictate` presents a compact **dictation sheet** that
+  captures, publishes the cleaned transcript to the App Group, pings the keyboard
+  (`DarwinHandoffNotifier`), and mirrors the coarse capture state for the mic key.
+  The composer's "Dictate for another app" button takes the same path.
+- **Hero surfaces (ARCHITECTURE §5.1)** — `StartDictationIntent`
+  (`AudioRecordingIntent`) / `StopDictationIntent`, the "Listening…" Live Activity
+  + Dynamic Island, and a Control Center control, plus an Action-button setup
+  walkthrough in Settings. Background capture-start from the intent is pending the
+  R0a real-device pass (simulator can't prove it); it degrades to opening the app.
+- **`Apps/`** — the three targets: `OpenWhisp` (SwiftUI host app + shared App
+  Intents), `OpenWhispKeyboard` (keyboard extension), and `OpenWhispWidgets`
+  (Live Activity + Control Center control).
 - **`project.yml`** — the XcodeGen spec (the `.xcodeproj` is generated and
-  git-ignored). Bundle IDs, the `group.app.openwhisp.ios` App Group, and iOS 18
-  deployment are wired here (decisions D2/D10).
+  git-ignored). Bundle IDs, the `group.app.openwhisp.ios` App Group, the
+  `openwhisp://` URL scheme, `NSSupportsLiveActivities`, and iOS 18 deployment are
+  wired here (decisions D2/D10).
 
 ### Bootstrap, test, build
 
@@ -38,7 +48,7 @@ What's in place:
 ./scripts/check-fixtures.sh  # validate the checked-in audio fixtures
 ./scripts/build-sim.sh       # unsigned simulator build of all three targets
 ./scripts/run-sim.sh         # boot a simulator, install + launch the app (see it running)
-./scripts/uitest.sh          # simulator XCUITest smoke (host launch + system-keyboard typing)
+./scripts/uitest.sh          # simulator XCUITest (host smoke + dictation floor flow + system-keyboard typing)
 ```
 
 The full testing contract — the tier table, what runs in CI vs. locally/nightly,
