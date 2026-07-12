@@ -17,6 +17,7 @@ fast deterministic logic tests first, real hardware/engines last.
 | **1b. Fixture integrity** | The checked-in `fixtures/audio/*.wav` are 16 kHz/mono/16-bit and each has a `.txt` reference; the required English + multilingual set is present. | `./scripts/check-fixtures.sh` | **CI (blocking)** |
 | **2. Simulator XCUITest** | The app bundle builds, installs, launches, and renders; text entry works via the system keyboard. | `./scripts/uitest.sh` | **CI (separate job)** + local |
 | **3. Env-gated real-engine runs** | Real Parakeet/WhisperKit engines transcribe `fixtures/audio/*.wav` on a simulator (loose WER). Downloads models on first run. | `./scripts/e2e-engines-sim.sh` (the script opens the gate itself) | **Local / nightly (not blocking)** |
+| **3b. Sync loopback (real TLS)** | The `SyncEngine` runs a full manifest → plan → pull/push → apply over a **real TLS-PSK `NWConnection`** to the Mac loopback harness on `127.0.0.1`; asserts vocab/history merge both ways and a second sync is a no-op. Self-skips without the harness. | `OPENWHISP_SYNC_E2E=1` + the mac repo's `scripts/sync-loopback-server.sh`, then `./scripts/test.sh` | **Local / integration (not blocking)** |
 | **4. Real-device checklist** | Hero-flow spikes, memory/latency/thermals, keyboard-extension enablement, cross-device sync — things a simulator cannot prove. | Manual (see below) | Human, pre-release |
 
 ### Tier 1 — the `swift test` gate
@@ -129,6 +130,44 @@ bandwidth on the first invocation. That's why this tier is **local/nightly, not
 the blocking CI gate.** Assert against `fixtures/*.txt` only with **loose WER /
 key-phrase containment** (see `fixtures/README.md`), never exact equality —
 ANE/GPU float non-associativity makes transcripts differ across machines.
+
+### Tier 3b — sync loopback (real TLS-PSK, no Mac needed)
+
+The pure sync logic — the merge policy, the `SyncPlanner.plan`, the manifest
+builder — is all Tier 1 (`SyncCoreTests`), and the whole `SyncEngine` loop
+(manifest → plan → pull/push → apply → idempotent re-sync) is proven in-process
+against a fake peer (`SyncKitTests/SyncEngineTests`). Tier 3b is the one thing
+those can't prove: **the real wire**. It arms the *same* TLS 1.3-capable PSK the
+phone uses, connects a real `NWConnection` to the Mac loopback harness on
+`127.0.0.1`, handshakes over the Agent Bridge, and runs a full sync — asserting
+vocabulary + history merge both ways and that a second sync moves nothing.
+
+```sh
+# In the openwhisp (mac) repo — start the harness (prints READY):
+OPENWHISP_SYNC_PSK="$(openssl rand -base64 32)" \
+OPENWHISP_SYNC_PORT=8770 \
+OPENWHISP_SYNC_FIXTURE_DIR=/path/to/seed \
+  ./scripts/sync-loopback-server.sh
+
+# In this repo — point the gated test at it and run the package suite:
+OPENWHISP_SYNC_E2E=1 \
+OPENWHISP_SYNC_PSK="<same base64 psk>" \
+OPENWHISP_SYNC_PORT=8770 \
+  ./scripts/test.sh
+```
+
+Without `OPENWHISP_SYNC_E2E=1` (or the harness), `LoopbackSyncE2ETests`
+**self-skips** cleanly, so it never flakes the blocking Tier-1 gate. A dedicated
+integration agent runs the two repos together; day to day, the in-process
+`SyncEngineTests` + the hermetic `TLSPSKLoopbackTests` (which stand up a local
+TLS-PSK listener and prove the handshake + a wrong-key rejection) cover the wire.
+
+> **TLS version note.** The transport targets TLS 1.3 but sets a **1.2 floor**:
+> Network.framework's external-PSK API negotiates the TLS-1.2 PSK-DHE suites
+> today (verified on the current SDK), and rises to 1.3 automatically once the
+> platform wires external PSK through it. Either way the posture is mutual-PSK
+> auth, ephemeral-DH forward secrecy, no CA, nothing readable pre-handshake — see
+> `SyncKit/TLSPSK.swift`.
 
 ### Tier 4 — real-device checklist (manual, pre-release)
 

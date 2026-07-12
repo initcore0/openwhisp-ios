@@ -49,8 +49,15 @@ final class HomeSmokeUITests: XCTestCase {
         XCTAssertTrue(settingsTab.waitForExistence(timeout: 10), "Settings tab missing")
         settingsTab.tap()
 
-        // Open the Engine Lab from the Developer section.
+        // Open the Engine Lab from the Developer section. It sits below the other
+        // Settings sections (Sync / Models / Privacy), so swipe it into view before
+        // asserting — a Form only realizes rows near the viewport.
         let labRow = app.buttons["settings.engineLab"]
+        var labSwipes = 0
+        while !labRow.exists && labSwipes < 6 {
+            app.swipeUp()
+            labSwipes += 1
+        }
         XCTAssertTrue(labRow.waitForExistence(timeout: 10), "Engine Lab row missing")
         labRow.tap()
 

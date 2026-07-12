@@ -10,9 +10,36 @@ is peer-to-peer over your own Wi-Fi.
 
 ## Status
 
-**Dictation handoff (WP5) — floor flow end-to-end + hero surfaces.** On top of the
-WP3 host app (on-device composer + engine layer) and the WP1 scaffold, dictation
-now flows from the app to the keyboard through the App Group.
+**P2P sync (WP6) — pairing, TLS-PSK transport, SyncEngine.** On top of the WP5
+dictation handoff, the phone now syncs its vocabulary, history, profiles, and
+modes with a paired Mac over the LAN — the Agent Bridge wire (NDJSON JSON-RPC)
+carried over a TLS-PSK `NWConnection` instead of the Mac's UNIX socket. Nothing
+leaves the two devices: QR-paired out of band, a 32-byte pre-shared key in the
+Keychain, mutual-PSK TLS, no CA. Settings → **Your Mac** pairs a Mac (camera QR
+scan), shows the paired-device card (last synced, Sync Now, Unpair), and
+auto-syncs on app-foreground (fail-silent, logged to a sync journal). The merge
+is deliberately boring and fully tested: vocabulary union by id (newer
+`updatedAt` wins), history append-only union by id, profiles/modes
+last-writer-wins — idempotent, so a converged re-sync moves nothing.
+
+What's in place for sync:
+
+- **`SyncCore`** (pure, in the `swift test` gate) — `PeerIdentity`,
+  `PairingPayload` (QR parse/validate + PSK fingerprint), the manifest/plan/report
+  models, `SyncPlanner.plan`, and the `SyncMerge` policy functions.
+- **`SyncKit`** (OS-bound) — `KeychainSecretStore`, `DefaultPairingService`
+  (pair → Keychain + peer store; unpair = key destruction), `BonjourPeerTransport`
+  (`NWBrowser` + TLS-PSK `NWConnection` → a `BridgeSession` conformer speaking
+  NDJSON), and `SyncEngine.run` applying to the app's real JSON stores.
+- **Tests** — the merge/planner matrix + idempotency and QR parse (Tier 1); the
+  engine end-to-end against an in-process fake peer, a hermetic real-TLS-PSK
+  handshake loopback, Keychain CRUD, and an env-gated integration test against the
+  Mac loopback harness (Tier 3b, self-skips); plus an XCUITest for the Your Mac
+  section + pairing sheet fallback.
+
+Previously — **dictation handoff (WP5) — floor flow end-to-end + hero surfaces.**
+On top of the WP3 host app (on-device composer + engine layer) and the WP1
+scaffold, dictation flows from the app to the keyboard through the App Group.
 
 What's in place:
 
