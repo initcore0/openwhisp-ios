@@ -181,6 +181,23 @@ Insertion is idempotent and expiring: a `PendingTranscript` is consumed
 atomically exactly once, and never inserted after `expiresAt` (120 s) so a
 stale dictation can't land into tomorrow's password field.
 
+**Status (WP5).** The **floor flow is implemented**: the host registers the
+`openwhisp://` URL scheme, `openwhisp://dictate` (parsed by the tested
+`DeepLink` router) presents the compact **dictation sheet** — a
+`CaptureCoordinator` built on the live App Group `HandoffEnvironment`, trigger
+`.keyboardHandoff`, `SilenceAutoStop` armed — which publishes the cleaned
+transcript, fires the `DarwinHandoffNotifier`, and mirrors the coarse capture
+state (`capturing`→`transcribing`→`idle`) through `FileSharedStateStore` for the
+keyboard's mic key. The composer's "Dictate for another app" button takes the
+same path. The **hero surfaces are implemented**: `StartDictationIntent`
+(`AudioRecordingIntent`) / `StopDictationIntent`, the "Listening…" Live Activity
++ Dynamic Island (Stop button, brief "Inserted ✓"), and the Control Center
+control, plus an Action-button setup walkthrough in Settings. **Background
+capture-start from the intent is pending the R0a real-device pass** (the
+simulator cannot prove it): the intent path degrades to opening the app
+(`openAppWhenRun` fallback) if in-process capture can't start, and the exact
+per-surface behavior is the Tier-4 R0a matrix in [TESTING.md](TESTING.md).
+
 ---
 
 ## 6. Interfaces

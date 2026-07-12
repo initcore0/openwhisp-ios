@@ -16,6 +16,20 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
+                        DictationSetupView()
+                    } label: {
+                        Label("Dictation Shortcuts", systemImage: "bolt.circle")
+                    }
+                    .accessibilityIdentifier("settings.dictationSetup")
+                } header: {
+                    Text("Hands-free dictation")
+                } footer: {
+                    Text("Set the Action button or a Control Center control to start OpenWhisp "
+                         + "dictation without opening the app.")
+                }
+
+                Section {
+                    NavigationLink {
                         ModelStorageView()
                     } label: {
                         Label("Models & Storage", systemImage: "internaldrive")
@@ -185,6 +199,64 @@ struct ModelStorageView: View {
     static func sizeString(_ bytes: Int64) -> String {
         guard bytes > 0 else { return "size unknown" }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+// MARK: - Dictation setup walkthrough (hero surfaces, ARCHITECTURE §5.1)
+
+/// Guides the user to wire the sanctioned no-app-switch dictation triggers: the
+/// Action button and a Control Center control, both of which launch
+/// `StartDictationIntent`. Pure guidance — iOS provides no API to set the Action
+/// button programmatically, so this is a walkthrough, not a one-tap toggle.
+struct DictationSetupView: View {
+    var body: some View {
+        Form {
+            Section {
+                Label("Dictate without opening OpenWhisp", systemImage: "bolt.circle.fill")
+                    .font(.headline)
+                Text("Assign the Action button or a Control Center control to OpenWhisp "
+                     + "Dictation. Press it in any app, speak, and your text is handed to "
+                     + "the keyboard.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Action button (iPhone 15 Pro and later)") {
+                step(1, "Open Settings \u{2192} Action Button.")
+                step(2, "Swipe to Shortcut, then tap Choose a Shortcut.")
+                step(3, "Pick Start OpenWhisp Dictation.")
+            }
+
+            Section("Control Center") {
+                step(1, "Swipe down from the top-right to open Control Center.")
+                step(2, "Tap +, then Add a Control.")
+                step(3, "Choose OpenWhisp Dictation.")
+            }
+
+            Section {
+                Text("Whichever you use, dictation starts on-device and inserts through the "
+                     + "keyboard. If a hands-free start isn't permitted from your current app, "
+                     + "OpenWhisp opens to finish the dictation, then you switch back.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Good to know")
+            }
+        }
+        .navigationTitle("Dictation Shortcuts")
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("dictationSetup.root")
+    }
+
+    private func step(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(n)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.accentColor))
+            Text(text).font(.subheadline)
+        }
     }
 }
 

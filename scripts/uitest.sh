@@ -2,7 +2,10 @@
 # Run the simulator XCUITest suites on a booted iOS simulator.
 #
 # Boots (or reuses) an iOS simulator, then runs the UI-test schemes:
-#   - OpenWhispUITests    — launches the REAL host app, asserts the home renders.
+#   - OpenWhispUITests        — launches the REAL host app, asserts the home renders.
+#   - DictationHandoffUITests — drives the whole dictation-sheet FLOOR flow with the
+#                               DEBUG scripted fake engine (no mic/model): sheet
+#                               appears -> fake finishes -> published state.
 #   - UITestHostUITests   — types "Hello, world!" into a text field with the
 #                           SYSTEM keyboard (our keyboard extension is NOT
 #                           enabled here — that path is a manual/real-device
@@ -36,7 +39,7 @@ mkdir -p "$RESULTS_DIR"
 if [[ "$#" -gt 0 ]]; then
   SCHEMES=("$@")
 else
-  SCHEMES=(OpenWhispUITests UITestHostUITests)
+  SCHEMES=(OpenWhispUITests DictationHandoffUITests UITestHostUITests)
 fi
 
 # --- Boot (or reuse) the target simulator ------------------------------------

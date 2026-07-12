@@ -5,12 +5,22 @@ import SwiftUI
 /// stores + view models.
 struct RootView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var router: DictationRouter
 
     var body: some View {
-        if settings.didOnboard {
-            MainTabView()
-        } else {
-            OnboardingView()
+        Group {
+            if settings.didOnboard {
+                MainTabView()
+            } else {
+                OnboardingView()
+            }
+        }
+        // The dictation sheet is presented app-wide (floor flow + composer
+        // affordance + App Intent foreground fallback) so it works over both
+        // onboarding and the main tabs. Presentation is a pure function of the
+        // router's `pending` state.
+        .sheet(item: $router.pending) { pending in
+            DictationSheet(trigger: pending.trigger)
         }
     }
 }

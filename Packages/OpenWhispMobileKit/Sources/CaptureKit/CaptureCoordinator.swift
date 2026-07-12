@@ -34,9 +34,25 @@ public final class CaptureCoordinator: CaptureCoordinating {
     // MARK: CaptureCoordinating
 
     public private(set) var state: CaptureState = .idle {
-        didSet { onStateChange?(state) }
+        didSet {
+            onStateChange?(state)
+            // Mirror the coarse cross-process capture state so the keyboard's mic
+            // key reflects reality (D8). idle/published/failed collapse to `.idle`;
+            // preparing+listening are `.capturing`; transcribing is its own phase.
+            // Only WRITE on a coarse transition to avoid pointless file churn while
+            // levels stream through `.listening(level:)`.
+            let coarse = Self.coarse(for: state)
+            if coarse != lastCoarse {
+                lastCoarse = coarse
+                sharedState?.writeCaptureState(coarse)
+            }
+        }
     }
     public var onStateChange: ((CaptureState) -> Void)?
+
+    /// The last coarse state written to `sharedState`, so we only write on an
+    /// actual transition (not on every streamed level while `.listening`).
+    private var lastCoarse: HandoffCaptureState = .idle
 
     /// Optional live-partial sink for the in-app composer / live preview. Fed the
     /// engine's `onPartial` verbatim — partials are NOT part of the publish
@@ -53,6 +69,10 @@ public final class CaptureCoordinator: CaptureCoordinating {
     private let session: AudioSessionControlling
     private let handoffStore: DictationHandoffStore
     private let notifier: HandoffNotifier?
+    /// Optional cross-process coarse-state mirror (App Group). The floor/hero flows
+    /// pass the live `FileSharedStateStore` so the keyboard's mic key sees
+    /// capturing/transcribing/idle; the in-app composer passes nil.
+    private let sharedState: SharedStateStore?
     private let cleanerConfig: TranscriptCleaner.Config
     private let language: String
     private let now: () -> Date
@@ -67,6 +87,7 @@ public final class CaptureCoordinator: CaptureCoordinating {
         session: AudioSessionControlling,
         handoffStore: DictationHandoffStore,
         notifier: HandoffNotifier? = nil,
+        sharedState: SharedStateStore? = nil,
         cleanerConfig: TranscriptCleaner.Config,
         language: String = "en",
         silenceConfig: SilenceAutoStop.Config = .default,
@@ -77,6 +98,7 @@ public final class CaptureCoordinator: CaptureCoordinating {
         self.session = session
         self.handoffStore = handoffStore
         self.notifier = notifier
+        self.sharedState = sharedState
         self.cleanerConfig = cleanerConfig
         self.language = language
         self.silenceConfig = silenceConfig
@@ -101,6 +123,17 @@ public final class CaptureCoordinator: CaptureCoordinating {
 
     public func cancel() async {
         dispatch(.cancel)
+    }
+
+    /// Collapse the rich `CaptureState` to the coarse cross-process
+    /// `HandoffCaptureState` the keyboard's mic key reads. `preparing`+`listening`
+    /// are both "capturing"; terminal states (idle/published/failed) are "idle".
+    private static func coarse(for state: CaptureState) -> HandoffCaptureState {
+        switch state {
+        case .idle, .published, .failed: return .idle
+        case .preparing, .listening: return .capturing
+        case .transcribing: return .transcribing
+        }
     }
 
     // MARK: - Engine callbacks → events

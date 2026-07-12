@@ -1,14 +1,18 @@
 import WidgetKit
 import SwiftUI
 
-/// The widget extension bundle. WP1 ships a single compiling stub widget so the
-/// target builds and installs; the "listening…" Live Activity and the Control
-/// Center recording control (the iOS-18 `AudioRecordingIntent` surface) land in
-/// WP5.
+/// The widget extension bundle. Carries the WP5 hero surfaces: the dictation Live
+/// Activity ("Listening…" with a Stop button + Dynamic Island) and the Control
+/// Center control that launches `StartDictationIntent`. The WP1 placeholder widget
+/// stays so the extension always has a Home-Screen presence.
 @main
 struct OpenWhispWidgetsBundle: WidgetBundle {
     var body: some Widget {
         PlaceholderWidget()
+        if #available(iOS 18.0, *) {
+            DictationLiveActivity()
+            DictationControl()
+        }
     }
 }
 
