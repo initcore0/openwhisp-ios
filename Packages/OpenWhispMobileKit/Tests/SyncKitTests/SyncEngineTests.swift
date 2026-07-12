@@ -46,6 +46,35 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(Set(peer.history.map(\.id)), [h1.id, h2.id])
     }
 
+    func testHistoryPullWalksEveryPage() throws {
+        // The Mac holds 25 history entries; it pages at 4 per frame (frame-cap
+        // safety). The engine must re-pull until drained and end up with ALL 25 —
+        // proving the paging loop, not a single-frame pull that would truncate.
+        let macEntries = (0..<25).map { entry("mac-\($0)", at: TimeInterval(1_000 + $0)) }
+        let store = InMemorySyncStore(vocabulary: Vocabulary(terms: [], substitutions: []), history: [])
+        let peer = FakeSyncPeer(vocabulary: Vocabulary(terms: [], substitutions: []), history: macEntries)
+        peer.historyPageSize = 4
+        let engine = SyncEngine(store: store)
+
+        let report = try engine.run(with: peer)
+
+        XCTAssertEqual(store.history.count, 25, "every paged entry must land locally")
+        XCTAssertEqual(Set(store.history.map(\.id)), Set(macEntries.map(\.id)))
+        XCTAssertEqual(report.pulled.history, 25, "report counts all pulled pages")
+    }
+
+    func testHistoryPullPagingIsIdempotent() throws {
+        let macEntries = (0..<10).map { entry("m-\($0)", at: TimeInterval(2_000 + $0)) }
+        let store = InMemorySyncStore(vocabulary: Vocabulary(terms: [], substitutions: []), history: [])
+        let peer = FakeSyncPeer(vocabulary: Vocabulary(terms: [], substitutions: []), history: macEntries)
+        peer.historyPageSize = 3
+        let engine = SyncEngine(store: store)
+        _ = try engine.run(with: peer)
+        let secondReport = try engine.run(with: peer)
+        XCTAssertEqual(store.history.count, 10)
+        XCTAssertEqual(secondReport.pulled.history, 0, "a second paged sync adds nothing")
+    }
+
     func testSecondSyncIsNoOp() throws {
         let store = InMemorySyncStore(
             vocabulary: Vocabulary(terms: ["x"], substitutions: [sub("a", "A", at: 100)]),

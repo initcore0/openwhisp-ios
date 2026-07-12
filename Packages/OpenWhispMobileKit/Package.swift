@@ -24,13 +24,15 @@ let coreDependency: Package.Dependency = {
     // Branch pin until the upstream core is tagged (ARCHITECTURE §3: switch to
     // `.upToNextMinor(from:)` at first TestFlight).
     //
-    // WP6 (this branch) pins `mak-51-sync-wire` — the upstream WP0b sync wire:
-    // it carries the `sync.manifest`/`sync.pull`/`sync.push` verbs + typed
-    // params/results on `BridgeWire`, ConfigBundle schema v3 (`updatedAt` stamps
-    // on Vocabulary.Substitution / AppProfile / Mode), and `TranscriptionEntry`
-    // as the fidelity history payload — everything SyncKit consumes. The
-    // coordinator flips this back to `main` once WP0b merges upstream.
-    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "mak-51-sync-wire")
+    // WP6 pins `mak-51-lan-server` — the complete upstream sync branch (WP0b
+    // wire + the Mac LAN server + the coordinator's review fixes): it carries the
+    // `sync.manifest`/`sync.pull`/`sync.push` verbs, ConfigBundle schema v3
+    // (`updatedAt` stamps), the frame-cap-safe pull PAGING fields
+    // (`SyncPullParams.pageCursor`, `SyncBundleResult.hasMoreHistory` /
+    // `nextHistoryCursor`), and `TranscriptionEntry` as the fidelity history
+    // payload — everything SyncKit consumes. The coordinator flips this back to
+    // `main` once the upstream sync branch merges.
+    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "mak-51-lan-server")
 }()
 
 let package = Package(

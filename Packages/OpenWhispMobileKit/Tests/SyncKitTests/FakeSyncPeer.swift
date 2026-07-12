@@ -75,21 +75,29 @@ final class FakeSyncPeer: BridgeSession {
             modesHash: m.modesHash, packsHash: m.packsHash, historyHead: head, updatedAt: updated)
     }
 
+    /// When set, the fake pages history at this size (mirrors the real server) so
+    /// the engine's paging loop is exercised. nil → single-page (legacy behavior).
+    var historyPageSize: Int?
+
     private func pullResult(_ params: BridgeWire.SyncPullParams) -> BridgeWire.SyncBundleResult {
         let want = Set(params.want ?? BridgeWire.SyncSection.allCases)
+        // Config sections only on the first page (pageCursor nil), like the server.
+        let isFirstPage = (params.pageCursor?.isEmpty ?? true)
         let bundle = ConfigBundle(
-            profiles: want.contains(.profiles) ? profiles : nil,
-            modes: want.contains(.modes) ? modes : nil,
-            vocabulary: want.contains(.vocabulary) ? vocabulary : nil)
-        var entries: [TranscriptionEntry] = []
-        if want.contains(.history) {
-            if let cursorStr = params.sinceHistoryCursor, let cursor = BridgeWire.date(fromISO8601: cursorStr) {
-                entries = history.filter { $0.date > cursor }
-            } else {
-                entries = history
-            }
+            profiles: (isFirstPage && want.contains(.profiles)) ? profiles : nil,
+            modes: (isFirstPage && want.contains(.modes)) ? modes : nil,
+            vocabulary: (isFirstPage && want.contains(.vocabulary)) ? vocabulary : nil)
+        guard want.contains(.history) else {
+            return BridgeWire.SyncBundleResult(bundle: bundle, historyEntries: [])
         }
-        return BridgeWire.SyncBundleResult(bundle: bundle, historyEntries: entries)
+        let filtered = SyncMerge.historyDelta(history, sinceCursor: params.sinceHistoryCursor)
+        let limit = params.historyLimit ?? historyPageSize ?? BridgeWire.SyncPullParams.defaultHistoryPageSize
+        let page = SyncMerge.historyPage(filtered, afterCursor: params.pageCursor, limit: limit)
+        return BridgeWire.SyncBundleResult(
+            bundle: bundle,
+            historyEntries: page.entries,
+            hasMoreHistory: page.hasMore,
+            nextHistoryCursor: page.nextCursor)
     }
 
     private func pushResult(_ offer: BridgeWire.SyncBundleResult) -> BridgeWire.SyncPushResult {

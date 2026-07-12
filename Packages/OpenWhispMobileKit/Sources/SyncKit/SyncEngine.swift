@@ -50,28 +50,53 @@ public final class SyncEngine {
         var pushed = SyncReport.SectionCounts()
 
         // 3. Pull: fetch the sections the plan asked for and merge into local.
+        // History is PAGED (the server caps each frame under 1 MiB), so we loop
+        // sync.pull with the returned `pageCursor` until `hasMoreHistory` is
+        // false. Config sections ride only the first page (pageCursor nil); later
+        // pages carry history alone. Each page's history is merged as it arrives —
+        // the union is idempotent, so applying page-by-page equals applying all at
+        // once, without ever holding the whole log in one frame.
         if !plan.pull.isEmpty {
             let want = plan.pull.compactMap { BridgeWire.SyncSection(rawValue: $0.rawValue) }
             let cursor = plan.historyCursor.map(BridgeWire.iso8601String(from:))
-            let params = BridgeWire.SyncPullParams(sinceHistoryCursor: cursor, want: want)
-            let result: BridgeWire.SyncBundleResult
-            do {
-                result = try session.call(
-                    method: BridgeWire.Method.syncPull.rawValue, params: params,
-                    resultType: BridgeWire.SyncBundleResult.self)
-            } catch { throw EngineError.pull("\(error)") }
+            var pageCursor: String? = nil
+            var isFirstPage = true
+            var pageGuard = 0
+            while true {
+                let params = BridgeWire.SyncPullParams(
+                    sinceHistoryCursor: cursor, want: want, pageCursor: pageCursor)
+                let result: BridgeWire.SyncBundleResult
+                do {
+                    result = try session.call(
+                        method: BridgeWire.Method.syncPull.rawValue, params: params,
+                        resultType: BridgeWire.SyncBundleResult.self)
+                } catch { throw EngineError.pull("\(error)") }
 
-            if plan.pull.contains(.vocabulary), let v = result.bundle.vocabulary {
-                pulled.vocabulary = store.applyVocabulary(v)
-            }
-            if plan.pull.contains(.profiles), let p = result.bundle.profiles {
-                pulled.profiles = store.applyProfiles(p)
-            }
-            if plan.pull.contains(.modes), let m = result.bundle.modes {
-                pulled.modes = store.applyModes(m)
-            }
-            if plan.pull.contains(.history) {
-                pulled.history = store.applyHistory(result.historyEntries)
+                if isFirstPage {
+                    // Config sections only appear on the first page.
+                    if plan.pull.contains(.vocabulary), let v = result.bundle.vocabulary {
+                        pulled.vocabulary = store.applyVocabulary(v)
+                    }
+                    if plan.pull.contains(.profiles), let p = result.bundle.profiles {
+                        pulled.profiles = store.applyProfiles(p)
+                    }
+                    if plan.pull.contains(.modes), let m = result.bundle.modes {
+                        pulled.modes = store.applyModes(m)
+                    }
+                    isFirstPage = false
+                }
+                if plan.pull.contains(.history), !result.historyEntries.isEmpty {
+                    pulled.history += store.applyHistory(result.historyEntries)
+                }
+
+                // Terminate on the server's explicit "more?" flag, NOT on the
+                // presence of nextHistoryCursor (the server sets that on the last
+                // page too). A peer that omits the field (older/single-page) reads
+                // as false → one page, as before.
+                guard result.hasMoreHistory == true, let next = result.nextHistoryCursor else { break }
+                pageCursor = next
+                pageGuard += 1
+                guard pageGuard < 10_000 else { throw EngineError.pull("history paging did not terminate") }
             }
             // packs: content-hash identity handled by the app's pack installer; the
             // engine reports the section as seen but does not merge binaries here.

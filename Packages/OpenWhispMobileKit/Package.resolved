@@ -1,5 +1,5 @@
 {
-  "originHash" : "8cf4dab152cb8847bb658a4d323b7a0ead9f1e4810d99b6f291a96087276300d",
+  "originHash" : "84ed23b9bea01204a58676fe88fa5bc88f445f89e5aba0ad943b495a396c0502",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/initcore0/openwhisp.git",
       "state" : {
-        "branch" : "mak-51-sync-wire",
-        "revision" : "8f957ed80446d2c6245bad606823c4d7e65cffc7"
+        "branch" : "mak-51-lan-server",
+        "revision" : "2a48b72fa47b76198bbdce0e2c7d9553bdb2eb63"
       }
     },
     {

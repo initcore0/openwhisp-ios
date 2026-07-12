@@ -25,6 +25,7 @@ final class LoopbackSyncE2ETests: XCTestCase {
     private struct HarnessConfig {
         let psk: Data
         let port: NWEndpoint.Port
+        let peerID: String
     }
 
     private func harnessOrSkip() throws -> HarnessConfig {
@@ -39,12 +40,18 @@ final class LoopbackSyncE2ETests: XCTestCase {
               let portNum = UInt16(portStr), let port = NWEndpoint.Port(rawValue: portNum) else {
             throw XCTSkip("OPENWHISP_SYNC_PORT missing/invalid; harness not configured.")
         }
-        return HarnessConfig(psk: psk, port: port)
+        // The TLS-PSK identity hint MUST equal the peer UUID the server registered
+        // its PSK under (OPENWHISP_SYNC_PEER_ID). A mismatch fails the handshake
+        // with "unknown PSK identity" — which is exactly how a real phone presents
+        // its own peer id from the scanned QR payload.
+        let peerID = ProcessInfo.processInfo.environment["OPENWHISP_SYNC_PEER_ID"]
+            ?? "0BADF00D-0000-0000-0000-00000000CAFE"  // the harness's fixed default
+        return HarnessConfig(psk: psk, port: port, peerID: peerID)
     }
 
     /// Connect to the loopback harness over TLS-PSK and return a handshaked session.
     private func connect(_ config: HarnessConfig) throws -> TCPBridgeSession {
-        let params = TLSPSK.parameters(psk: config.psk, identityHint: "loopback-peer")
+        let params = TLSPSK.parameters(psk: config.psk, identityHint: config.peerID)
         let conn = NDJSONConnection(host: .init("127.0.0.1"), port: config.port, parameters: params)
         try conn.start(timeout: 10)
         let session = TCPBridgeSession(connection: conn, callTimeout: 15)
