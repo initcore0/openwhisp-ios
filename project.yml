@@ -136,6 +136,8 @@ targets:
       - package: OpenWhispMobileKit
         product: CaptureKit
       - package: OpenWhispMobileKit
+        product: SyncCore
+      - package: OpenWhispMobileKit
         product: SyncKit
       - target: OpenWhispKeyboard
       - target: OpenWhispWidgets

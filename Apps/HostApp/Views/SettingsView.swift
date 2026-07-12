@@ -30,6 +30,20 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
+                        YourMacView()
+                    } label: {
+                        Label("Your Mac", systemImage: "laptopcomputer.and.iphone")
+                    }
+                    .accessibilityIdentifier("settings.yourMac")
+                } header: {
+                    Text("Sync")
+                } footer: {
+                    Text("Pair your Mac to keep your vocabulary, history, and profiles in step "
+                         + "over your local Wi-Fi. Nothing goes to the cloud.")
+                }
+
+                Section {
+                    NavigationLink {
                         ModelStorageView()
                     } label: {
                         Label("Models & Storage", systemImage: "internaldrive")

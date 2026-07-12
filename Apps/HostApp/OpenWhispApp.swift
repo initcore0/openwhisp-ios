@@ -7,10 +7,14 @@ import SwiftUI
 /// injects them into the environment so the thin screen views stay stateless.
 @main
 struct OpenWhispApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings = AppSettings()
     @StateObject private var history = HistoryStore()
     @StateObject private var labRuns = LabRunStore()
     @StateObject private var dictationRouter = DictationRouter()
+    /// P2P sync front end (WP6). Foreground-only; auto-syncs paired Macs when the
+    /// app becomes active and the peer resolves on the LAN within a short window.
+    @StateObject private var sync = SyncCoordinator()
 
     init() {
         // Install the App Intents bridge (hero flow). Its open-app fallback is wired
@@ -25,6 +29,7 @@ struct OpenWhispApp: App {
                 .environmentObject(history)
                 .environmentObject(labRuns)
                 .environmentObject(dictationRouter)
+                .environmentObject(sync)
                 .task {
                     // Wire the App Intent's open-app fallback (background-start
                     // failure → open the app + present the sheet) to the router.
@@ -50,6 +55,15 @@ struct OpenWhispApp: App {
                 .onOpenURL { url in
                     dictationRouter.handle(url: url)
                 }
+        }
+        // Foreground-only P2P sync (ARCHITECTURE §6.5): when the app becomes
+        // active, briefly browse the LAN and sync any paired Mac that resolves.
+        // Fail-silent — a sleeping/absent Mac is a no-op logged to the sync
+        // journal, never an error banner.
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                sync.autoSyncOnForeground()
+            }
         }
     }
 }

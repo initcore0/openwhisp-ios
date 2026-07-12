@@ -22,10 +22,17 @@ let coreDependency: Package.Dependency = {
         return .package(name: "openwhisp", path: path)
     }
     // Branch pin until the upstream core is tagged (ARCHITECTURE §3: switch to
-    // `.upToNextMinor(from:)` at first TestFlight). `main` carries the WP0
-    // branch that exposes `.library(name: "OpenWhispCore", …)` + `.iOS(.v18)` and
-    // makes the reused types `public`.
-    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "main")
+    // `.upToNextMinor(from:)` at first TestFlight).
+    //
+    // WP6 pins `mak-51-lan-server` — the complete upstream sync branch (WP0b
+    // wire + the Mac LAN server + the coordinator's review fixes): it carries the
+    // `sync.manifest`/`sync.pull`/`sync.push` verbs, ConfigBundle schema v3
+    // (`updatedAt` stamps), the frame-cap-safe pull PAGING fields
+    // (`SyncPullParams.pageCursor`, `SyncBundleResult.hasMoreHistory` /
+    // `nextHistoryCursor`), and `TranscriptionEntry` as the fidelity history
+    // payload — everything SyncKit consumes. The coordinator flips this back to
+    // `main` once the upstream sync branch merges.
+    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "mak-51-lan-server")
 }()
 
 let package = Package(
@@ -43,6 +50,13 @@ let package = Package(
         .library(name: "MobileCore", targets: ["MobileCore"]),
         .library(name: "KeyboardCore", targets: ["KeyboardCore"]),
         .library(name: "CaptureKit", targets: ["CaptureKit"]),
+        // SyncCore: the PURE, OS-free sync logic (models + planner + merge).
+        // Depends on OpenWhispCore only (ConfigBundle/Vocabulary/TranscriptionEntry)
+        // — NOT on Network/Security — so it lives in the fast `swift test` gate.
+        // It is a SEPARATE target from MobileCore on purpose: MobileCore is
+        // Foundation-only and links into the memory-tight keyboard extension, so it
+        // must never pull OpenWhispCore in. SyncKit (OS-bound) builds on SyncCore.
+        .library(name: "SyncCore", targets: ["SyncCore"]),
         .library(name: "SyncKit", targets: ["SyncKit"]),
     ],
     dependencies: [
@@ -89,12 +103,53 @@ let package = Package(
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ]
         ),
+        // MARK: Pure sync logic — the `swift test` surface (no Network/Security).
+        // Models (PeerIdentity, PairingPayload, SyncManifest/Plan/Report) + the
+        // SyncPlanner and the pure merge functions (vocab union by id/updatedAt,
+        // history append-only union by id, LWW profiles/modes). Imports
+        // OpenWhispCore for the shared ConfigBundle/Vocabulary/TranscriptionEntry
+        // types the merge operates on — nothing OS-bound.
+        .target(
+            name: "SyncCore",
+            dependencies: [
+                .product(name: "OpenWhispCore", package: "openwhisp"),
+            ]
+        ),
+
+        // MARK: OS-bound sync transport + engine (Network.framework + Keychain).
+        // Bonjour discovery (NWBrowser), TLS-PSK NWConnection, the NDJSON
+        // BridgeSession conformer, KeychainSecretStore, PairingService, SyncEngine.
+        // Builds on SyncCore (pure logic) + OpenWhispBridgeKit (BridgeSession +
+        // BridgeWire). `swift test` builds this on the macOS host — Network +
+        // Security are available there — so the framing + keychain tests run in the
+        // fast gate; camera/DataScanner is iOS-only and lives in the host app UI.
         .target(
             name: "SyncKit",
-            dependencies: ["MobileCore"]
+            dependencies: [
+                "MobileCore",
+                "SyncCore",
+                .product(name: "OpenWhispCore", package: "openwhisp"),
+                .product(name: "OpenWhispBridgeKit", package: "openwhisp"),
+            ]
         ),
 
         // MARK: Tests (the gate)
+        .testTarget(
+            name: "SyncCoreTests",
+            dependencies: [
+                "SyncCore",
+                .product(name: "OpenWhispCore", package: "openwhisp"),
+            ]
+        ),
+        .testTarget(
+            name: "SyncKitTests",
+            dependencies: [
+                "SyncKit",
+                "SyncCore",
+                .product(name: "OpenWhispCore", package: "openwhisp"),
+                .product(name: "OpenWhispBridgeKit", package: "openwhisp"),
+            ]
+        ),
         .testTarget(
             name: "MobileCoreTests",
             dependencies: ["MobileCore"]
