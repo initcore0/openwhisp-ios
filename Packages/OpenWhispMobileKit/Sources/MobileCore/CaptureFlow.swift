@@ -46,6 +46,12 @@ public struct CaptureFlow: Equatable, Sendable {
         case trigger(CaptureTrigger)
         /// The audio session is live and the tap is delivering samples.
         case audioReady
+        /// The ENGINE is genuinely live — its mic tap is installed and consuming
+        /// audio (the engine's `onStarted`). `start()` returning is NOT that
+        /// signal: engines enqueue their start and the model load (or first-run
+        /// download, up to minutes) happens before any tap exists. Listening
+        /// begins only here; flipping earlier silently drops the first words.
+        case engineStarted
         /// A new input level sample (RMS), for UI.
         case level(Float)
         /// `SilenceAutoStop` fired — end capture, still transcribe.
@@ -132,8 +138,19 @@ public struct CaptureFlow: Equatable, Sendable {
 
         // MARK: preparing
         case (.preparing, .audioReady):
+            // The SESSION is ready; the engine is only being started now. Stay in
+            // .preparing (UI: "Starting…") until the engine's own live signal —
+            // see the .engineStarted doc for why this guards against word loss.
+            return [.startEngine(language: language)]
+
+        case (.preparing, .engineStarted):
             state = .listening(level: 0)
-            return [.startEngine(language: language), .updateActivity(.listening(level: 0))]
+            return [.updateActivity(.listening(level: 0))]
+
+        case (.preparing, .manualStop):
+            // User stopped while the engine was still arming: nothing has been
+            // captured yet, so this is a cancel, not a stop-and-transcribe.
+            return abortToIdle(stopAudio: true, stopEngine: .cancel, failure: nil)
 
         case (.preparing, .cancel):
             // The engine has not started yet (that happens on audioReady), so there
@@ -149,7 +166,6 @@ public struct CaptureFlow: Equatable, Sendable {
         case (.preparing, .trigger),
              (.preparing, .level),
              (.preparing, .silenceStopped),
-             (.preparing, .manualStop),
              (.preparing, .engineFinal),
              (.preparing, .cleaned):
             // Premature or duplicate signals before audio is live — ignore.
@@ -180,6 +196,7 @@ public struct CaptureFlow: Equatable, Sendable {
 
         case (.listening, .trigger),
              (.listening, .audioReady),
+             (.listening, .engineStarted),
              (.listening, .engineFinal),
              (.listening, .cleaned):
             // Already listening; a second trigger/audioReady is redundant, and a
@@ -214,6 +231,7 @@ public struct CaptureFlow: Equatable, Sendable {
 
         case (.transcribing, .trigger),
              (.transcribing, .audioReady),
+             (.transcribing, .engineStarted),
              (.transcribing, .level),
              (.transcribing, .silenceStopped),
              (.transcribing, .manualStop):

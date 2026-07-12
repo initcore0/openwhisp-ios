@@ -139,6 +139,11 @@ public final class CaptureCoordinator: CaptureCoordinating {
     // MARK: - Engine callbacks → events
 
     private func wireEngine() {
+        engine.onStarted = { [weak self] in
+            // The engine's tap is genuinely live — only now may listening begin
+            // (see CaptureFlow.Event.engineStarted; guards the arming-gap word loss).
+            self?.dispatch(.engineStarted)
+        }
         engine.onLevelChanged = { [weak self] _, vad in
             guard let self else { return }
             Task { @MainActor in self.handleLevel(vad) }

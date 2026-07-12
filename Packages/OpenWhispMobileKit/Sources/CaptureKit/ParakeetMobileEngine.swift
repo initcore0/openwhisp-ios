@@ -23,6 +23,7 @@ public final class ParakeetMobileEngine: StreamingTranscriptionEngine {
     public var onFinal: ((String) -> Void)?
     public var onError: ((String) -> Void)?
     public var onLevelChanged: ((_ display: Float, _ vad: Float) -> Void)?
+    public var onStarted: (() -> Void)?
 
     /// Fires when the underlying manager reports a NEW end-of-utterance event (only
     /// the EOU variant exposes these). Used by the agent-dictate EOU auto-stop; nil
@@ -147,6 +148,10 @@ public final class ParakeetMobileEngine: StreamingTranscriptionEngine {
             audioEngine = engine
             engine.prepare()
             try engine.start()
+            // Capture is GENUINELY live only here: the tap is installed and the
+            // engine consumes buffers. Everything above (model load / first-run
+            // download, reset, callback wiring) was the arming gap this closes.
+            onStarted?()
         } catch {
             NSLog("[Parakeet] start error: %@", error.localizedDescription)
             guard !didStop else { return }

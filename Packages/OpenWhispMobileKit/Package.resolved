@@ -1,5 +1,5 @@
 {
-  "originHash" : "8e032c96ab35831ae6429c9c490ca0843a44a3420ae5112f0fadf281abcafb97",
+  "originHash" : "97babd976f86db80ebb476d2c57afd3ddfe4b7d85a3914140c1bb31d06fec0a6",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/initcore0/openwhisp.git",
       "state" : {
-        "branch" : "mak-51-ios-core",
-        "revision" : "46c346922f6bb5a39c166b1f17a22195da4b3862"
+        "branch" : "main",
+        "revision" : "9af222262a7658816856e664c931a621b05b4fb2"
       }
     },
     {

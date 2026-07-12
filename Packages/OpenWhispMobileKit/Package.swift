@@ -22,10 +22,10 @@ let coreDependency: Package.Dependency = {
         return .package(name: "openwhisp", path: path)
     }
     // Branch pin until the upstream core is tagged (ARCHITECTURE §3: switch to
-    // `.upToNextMinor(from:)` at first TestFlight). `mak-51-ios-core` is the WP0
+    // `.upToNextMinor(from:)` at first TestFlight). `main` carries the WP0
     // branch that exposes `.library(name: "OpenWhispCore", …)` + `.iOS(.v18)` and
     // makes the reused types `public`.
-    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "mak-51-ios-core")
+    return .package(url: "https://github.com/initcore0/openwhisp.git", branch: "main")
 }()
 
 let package = Package(

@@ -54,6 +54,12 @@ final class CaptureCoordinatorTests: XCTestCase {
         XCTAssertEqual(session.activateCount, 1, "startAudio must activate the session")
         XCTAssertEqual(engine.startCount, 1, "audioReady must start the engine")
         XCTAssertEqual(engine.lastLanguage, "en")
+        // NOT listening yet — the engine hasn't reported its tap live.
+        guard case .preparing = coordinator.state else {
+            return XCTFail("expected .preparing before onStarted, got \(coordinator.state)")
+        }
+        engine.emitStarted()
+        await drain()
         // Listening now.
         guard case .listening = coordinator.state else {
             return XCTFail("expected .listening, got \(coordinator.state)")
@@ -106,6 +112,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         await coordinator.begin(trigger: .inApp)
         await drain()
+        engine.emitStarted()
+        await drain()
 
         // Speech samples with real time between them accumulate arm credit.
         for _ in 0..<5 {
@@ -137,6 +145,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         await coordinator.begin(trigger: .keyboardHandoff)
         await drain()
+        engine.emitStarted()
+        await drain()
         engine.emitLevel(display: 0.5, vad: 0.5)
         await drain()
 
@@ -162,6 +172,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         // Drive to .transcribing via a manual stop (engine still running its decode).
         await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitStarted()
         await drain()
         await coordinator.stop()
         await drain()
@@ -193,6 +205,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         await coordinator.begin(trigger: .inApp)
         await drain()
+        engine.emitStarted()
+        await drain()
         engine.emitLevel(display: 0.5, vad: 0.5)
         await drain()
         guard case .listening = coordinator.state else {
@@ -213,6 +227,8 @@ final class CaptureCoordinatorTests: XCTestCase {
         let (coordinator, engine, session, store, _) = makeCoordinator()
 
         await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitStarted()
         await drain()
         await coordinator.stop()   // → .transcribing, engine finishing its decode
         await drain()
@@ -236,6 +252,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         await coordinator.begin(trigger: .appIntent)
         await drain()
+        engine.emitStarted()
+        await drain()
 
         // startAudio failed → interrupted → failed state, engine never started.
         XCTAssertEqual(engine.startCount, 0, "engine must not start if the session failed")
@@ -252,6 +270,8 @@ final class CaptureCoordinatorTests: XCTestCase {
         let (coordinator, engine, _, store, _) = makeCoordinator()
 
         await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitStarted()
         await drain()
         engine.emitLevel(display: 0.5, vad: 0.5)
         await drain()
@@ -272,6 +292,8 @@ final class CaptureCoordinatorTests: XCTestCase {
         let (coordinator, engine, _, store, notifier) = makeCoordinator()
 
         await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitStarted()
         await drain()
         await coordinator.stop()
         await drain()
@@ -294,6 +316,8 @@ final class CaptureCoordinatorTests: XCTestCase {
 
         await coordinator.begin(trigger: .inApp)
         await drain()
+        engine.emitStarted()
+        await drain()
         engine.emitPartial("gpt")
         engine.emitPartial("gpt is")
         await drain()
@@ -309,6 +333,8 @@ final class CaptureCoordinatorTests: XCTestCase {
         coordinator.onRawFinal = { raws.append($0) }
 
         await coordinator.begin(trigger: .inApp)
+        await drain()
+        engine.emitStarted()
         await drain()
         await coordinator.stop()
         await drain()

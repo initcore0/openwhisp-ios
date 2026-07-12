@@ -14,10 +14,16 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertEqual(flow.state, .preparing)
         XCTAssertEqual(effects, [.startAudio, .updateActivity(.preparing)])
 
-        // audioReady → listening, start engine.
+        // audioReady → engine start requested; still PREPARING (the engine's
+        // model may take seconds/minutes to load — listening now would eat words).
         effects = flow.handle(.audioReady)
+        XCTAssertEqual(flow.state, .preparing)
+        XCTAssertEqual(effects, [.startEngine(language: "en")])
+
+        // engineStarted (the engine's tap is live) → listening.
+        effects = flow.handle(.engineStarted)
         XCTAssertEqual(flow.state, .listening(level: 0))
-        XCTAssertEqual(effects, [.startEngine(language: "en"), .updateActivity(.listening(level: 0))])
+        XCTAssertEqual(effects, [.updateActivity(.listening(level: 0))])
 
         // level updates keep us listening.
         effects = flow.handle(.level(0.42))
@@ -50,6 +56,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.silenceStopped)
 
         let finalEffects = flow.handle(.engineFinal("raw uncleaned text"))
@@ -67,6 +74,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         let effects = flow.handle(.manualStop)
         XCTAssertEqual(flow.state, .transcribing)
         XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: false), .updateActivity(.transcribing)])
@@ -78,6 +86,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.appIntent))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.silenceStopped)
         _ = flow.handle(.engineFinal("hi"))
         let effects = flow.handle(.cleaned(text: "Hi."))
@@ -88,6 +97,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.keyboardHandoff))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.manualStop)
         _ = flow.handle(.engineFinal("hi"))
         let effects = flow.handle(.cleaned(text: "Hi."))
@@ -108,6 +118,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         let effects = flow.handle(.cancel)
         XCTAssertEqual(flow.state, .idle)
         // Abort while listening cancels the engine's decode (cancel: true).
@@ -118,6 +129,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.silenceStopped)   // already stopped audio
         let effects = flow.handle(.cancel)
         XCTAssertEqual(flow.state, .idle)
@@ -137,6 +149,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.manualStop)
         _ = flow.handle(.engineFinal("x"))
         flow.didPublish(id: UUID())
@@ -151,6 +164,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         let effects = flow.handle(.engineError("boom"))
         XCTAssertEqual(flow.state, .failed(.engineError("boom")))
         XCTAssertEqual(effects, [.stopAudio, .abort(.engineError("boom"))])
@@ -160,6 +174,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.silenceStopped)
         let effects = flow.handle(.engineError("boom"))
         XCTAssertEqual(flow.state, .failed(.engineError("boom")))
@@ -180,6 +195,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         let effects = flow.handle(.interrupted)
         XCTAssertEqual(flow.state, .failed(.sessionInterrupted))
         // Interruption while listening: stop audio AND cancel the engine (Finding 1).
@@ -198,6 +214,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.silenceStopped)
         let effects = flow.handle(.interrupted)
         XCTAssertEqual(flow.state, .failed(.sessionInterrupted))
@@ -211,6 +228,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.manualStop)
         _ = flow.handle(.engineFinal("x"))
         flow.didPublish(id: UUID())
@@ -224,6 +242,7 @@ final class CaptureFlowTests: XCTestCase {
         var flow = CaptureFlow()
         _ = flow.handle(.trigger(.inApp))
         _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
         _ = flow.handle(.interrupted)      // → failed
         let effects = flow.handle(.trigger(.inApp))
         XCTAssertEqual(flow.state, .preparing)
@@ -240,7 +259,7 @@ final class CaptureFlowTests: XCTestCase {
         let events: [CaptureFlow.Event] = [
             .trigger(.inApp), .trigger(.appIntent), .trigger(.keyboardHandoff),
             .audioReady, .level(0.5), .silenceStopped, .manualStop, .cancel,
-            .engineFinal("t"), .cleaned(text: "c"), .engineError("e"), .interrupted,
+            .engineStarted, .engineFinal("t"), .cleaned(text: "c"), .engineError("e"), .interrupted,
         ]
         for state in states {
             for event in events {
@@ -255,7 +274,7 @@ final class CaptureFlowTests: XCTestCase {
 
     func testStrayEventsInIdleAreIgnored() {
         for event in [CaptureFlow.Event.audioReady, .level(0.3), .silenceStopped,
-                      .manualStop, .engineFinal("x"), .cleaned(text: "c"),
+                      .manualStop, .engineStarted, .engineFinal("x"), .cleaned(text: "c"),
                       .engineError("y"), .interrupted] {
             var flow = CaptureFlow()
             let effects = flow.handle(event)
@@ -263,4 +282,34 @@ final class CaptureFlowTests: XCTestCase {
             XCTAssertEqual(effects, [], "event \(event) should be a no-op in idle")
         }
     }
+    // MARK: engineStarted contract (arming-gap word-loss guard)
+
+    func testListeningNeverBeginsBeforeEngineStarted() {
+        var flow = CaptureFlow()
+        _ = flow.handle(.trigger(.inApp))
+        _ = flow.handle(.audioReady)
+        XCTAssertEqual(flow.state, .preparing, "audioReady alone must not begin listening")
+        // Levels arriving during the arming gap change nothing.
+        XCTAssertEqual(flow.handle(.level(0.9)), [])
+        XCTAssertEqual(flow.state, .preparing)
+    }
+
+    func testManualStopDuringPreparingCancels() {
+        var flow = CaptureFlow()
+        _ = flow.handle(.trigger(.inApp))
+        _ = flow.handle(.audioReady)
+        let effects = flow.handle(.manualStop)
+        XCTAssertEqual(flow.state, .idle, "stopping before the engine armed = cancel")
+        XCTAssertEqual(effects, [.stopAudio, .stopEngine(cancel: true), .endActivity])
+    }
+
+    func testEngineStartedIgnoredOutsidePreparing() {
+        var flow = CaptureFlow()
+        _ = flow.handle(.trigger(.inApp))
+        _ = flow.handle(.audioReady)
+        _ = flow.handle(.engineStarted)
+        XCTAssertEqual(flow.handle(.engineStarted), [], "duplicate live signal is a no-op")
+        XCTAssertEqual(flow.state, .listening(level: 0))
+    }
+
 }

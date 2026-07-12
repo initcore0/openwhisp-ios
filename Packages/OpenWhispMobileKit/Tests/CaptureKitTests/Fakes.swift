@@ -17,6 +17,7 @@ final class FakeStreamingEngine: StreamingTranscriptionEngine {
     var onFinal: ((String) -> Void)?
     var onError: ((String) -> Void)?
     var onLevelChanged: ((_ display: Float, _ vad: Float) -> Void)?
+    var onStarted: (() -> Void)?
 
     private(set) var startCount = 0
     private(set) var stopCount = 0
@@ -39,6 +40,7 @@ final class FakeStreamingEngine: StreamingTranscriptionEngine {
 
     // Test drivers:
     func emitLevel(display: Float, vad: Float) { onLevelChanged?(display, vad) }
+    func emitStarted() { onStarted?() }
     func emitPartial(_ text: String) { onPartial?(text) }
     func emitFinal(_ text: String) { onFinal?(text) }
     func emitError(_ message: String) { onError?(message) }

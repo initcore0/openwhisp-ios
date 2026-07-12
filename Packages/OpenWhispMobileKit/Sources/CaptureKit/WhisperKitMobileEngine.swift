@@ -14,6 +14,13 @@ public final class WhisperKitMobileEngine: StreamingTranscriptionEngine {
     public var onFinal: ((String) -> Void)?
     public var onError: ((String) -> Void)?
     public var onLevelChanged: ((_ display: Float, _ vad: Float) -> Void)?
+    public var onStarted: (() -> Void)?
+
+    /// Whether this stream's `onStarted` already fired. AudioStreamTranscriber
+    /// installs the tap inside `handle.start()`, which doesn't return until the
+    /// stream ENDS — so the first state diff (they arrive per buffer, even in
+    /// silence) is the earliest proof the engine is consuming audio.
+    @MainActor private var startedNotified = false
 
     private let modelName: String
 
@@ -38,6 +45,7 @@ public final class WhisperKitMobileEngine: StreamingTranscriptionEngine {
         MainActor.assumeIsolated {
             self.lastConfirmedText = ""
             self.didFinish = false
+            self.startedNotified = false
             self.lifecycle.enqueue {
                 await self.runStart(task: task)
             }
@@ -101,6 +109,11 @@ public final class WhisperKitMobileEngine: StreamingTranscriptionEngine {
 
     @MainActor
     private func handleState(_ state: WhisperKitStreamState) {
+        // First state diff = the stream is consuming audio (see startedNotified).
+        if !startedNotified {
+            startedNotified = true
+            onStarted?()
+        }
         if let level = state.peakRelativeEnergy {
             onLevelChanged?(level, state.vadLevel ?? level)
         }

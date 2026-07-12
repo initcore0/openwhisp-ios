@@ -30,6 +30,7 @@ public final class ScriptedFakeEngine: StreamingTranscriptionEngine {
     public var onFinal: ((String) -> Void)?
     public var onError: ((String) -> Void)?
     public var onLevelChanged: ((_ display: Float, _ vad: Float) -> Void)?
+    public var onStarted: (() -> Void)?
 
     /// The fixed transcript a UI test asserts on. Deliberately already
     /// well-formed so the cleaner is a near no-op and the assertion is stable
@@ -57,6 +58,7 @@ public final class ScriptedFakeEngine: StreamingTranscriptionEngine {
 
     public func start(language: String) throws {
         started = true
+        onStarted?()
         onPartial?(Self.fakeFinalText)
 
         // Speech burst: arms the silence detector.

@@ -55,8 +55,11 @@ final class HandoffCoordinatorE2ETests: XCTestCase {
             language: "en"
         )
 
-        // begin(.keyboardHandoff): trigger -> startAudio -> audioReady -> startEngine.
+        // begin(.keyboardHandoff): trigger -> startAudio -> audioReady -> startEngine,
+        // then the engine reports its tap genuinely live (engineStarted contract).
         await coordinator.begin(trigger: .keyboardHandoff)
+        await drain()
+        engine.emitStarted()
         await drain()
         // The coarse cross-process state is now "capturing" (the mic key mirrors it).
         XCTAssertEqual(sharedState.readCaptureState(), .capturing,
