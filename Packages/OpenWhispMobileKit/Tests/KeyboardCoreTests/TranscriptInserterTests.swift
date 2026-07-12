@@ -20,6 +20,7 @@ final class TranscriptInserterTests: XCTestCase {
         var returnKeyLabel: ReturnKeyLabel = .return
         var isSecureField: Bool = false
         var hasFullAccess: Bool = true
+        var autocapType: KeyboardAutocapType = .sentences
 
         init(context: String? = nil) { self.contextBeforeCaret = context }
 

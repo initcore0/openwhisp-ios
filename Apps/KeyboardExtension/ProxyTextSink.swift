@@ -76,6 +76,21 @@ final class ProxyTextSink: KeyboardTextSink {
         controller?.hasFullAccess ?? false
     }
 
+    /// The field's `autocapitalizationType` trait, projected to the neutral enum.
+    /// When the field opts out (`.none`), the model suppresses sentence autocap so
+    /// username/URL fields don't get an unwanted leading capital (matches the
+    /// system keyboard). Defaults to `.sentences` when the trait is unreadable.
+    var autocapType: KeyboardAutocapType {
+        switch traits?.autocapitalizationType {
+        case .some(.none): return .none
+        case .some(.words): return .words
+        case .some(.allCharacters): return .allCharacters
+        case .some(.sentences): return .sentences
+        case .none: return .sentences
+        @unknown default: return .sentences
+        }
+    }
+
     // MARK: - Traits access
 
     /// `UITextDocumentProxy` conforms to `UITextInputTraits`, but the compile-time

@@ -45,6 +45,60 @@ final class KeyboardInteractionModelTests: XCTestCase {
         XCTAssertTrue(c.deletesWord(afterRepeats: c.wordDeletionThreshold + 5))
     }
 
+    // MARK: - Backspace hold (tap vs. repeat, slide-off) — MINOR 3
+
+    func testPlainTapEmitsExactlyOneBackspace() {
+        var hold = BackspaceHold()
+        hold.begin()
+        // No repeats fired → a plain tap.
+        XCTAssertTrue(hold.releaseWasPlainTap)
+    }
+
+    func testHoldThatFiredRepeatsIsNotAPlainTap() {
+        var hold = BackspaceHold()
+        hold.begin()
+        hold.fireRepeat()
+        hold.fireRepeat()
+        XCTAssertEqual(hold.liveRepeatCount, 2)
+        XCTAssertEqual(hold.repeatsFired, 2)
+        XCTAssertFalse(hold.releaseWasPlainTap,
+                       "a hold that fired repeats must not emit an extra backspace on release")
+    }
+
+    func testSlideOffPreservesFiredTallySoReleaseIsNotAPlainTap() {
+        // The exact MINOR 3 bug: repeats fire, the finger slides off (resetting the
+        // LIVE counter), then the finger lifts. The release must NOT look like a tap.
+        var hold = BackspaceHold()
+        hold.begin()
+        hold.fireRepeat()
+        hold.fireRepeat()
+        hold.fireRepeat()
+        hold.slideOff()
+        XCTAssertEqual(hold.liveRepeatCount, 0, "slide-off resets the live cadence counter")
+        XCTAssertEqual(hold.repeatsFired, 3, "…but preserves the fired tally")
+        XCTAssertFalse(hold.releaseWasPlainTap,
+                       "release after a slide-off (with repeats already fired) is NOT a plain tap")
+    }
+
+    func testSlideOffWithNoRepeatsIsStillATap() {
+        // Slide off immediately after touch-down, before any repeat fired: still a tap.
+        var hold = BackspaceHold()
+        hold.begin()
+        hold.slideOff()
+        XCTAssertTrue(hold.releaseWasPlainTap)
+    }
+
+    func testBeginResetsBothCountersForNextHold() {
+        var hold = BackspaceHold()
+        hold.begin()
+        hold.fireRepeat()
+        hold.slideOff()
+        hold.begin()   // next hold
+        XCTAssertEqual(hold.liveRepeatCount, 0)
+        XCTAssertEqual(hold.repeatsFired, 0)
+        XCTAssertTrue(hold.releaseWasPlainTap)
+    }
+
     // MARK: - Double-tap detection
 
     func testDoubleTapIntervalBoundary() {

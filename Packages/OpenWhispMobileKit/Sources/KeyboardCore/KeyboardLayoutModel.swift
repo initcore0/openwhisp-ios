@@ -116,9 +116,18 @@ public struct KeyboardLayoutModel: Equatable, Sendable {
     ///   by whitespace.
     /// - it disarms (`.off`) mid-word so lowercase continues naturally.
     public mutating func updateAutocap(contextBeforeCaret context: String?) {
-        guard autocapEnabled else { return }
         // Never fight a deliberate caps lock.
         if shift == .capsLock { return }
+
+        guard autocapEnabled else {
+            // Autocap is off (user setting off, or the field opted out with
+            // `.none`): the keyboard must NOT show an armed one-shot shift, so a
+            // field-start `.on` (which is only ever autocap's own doing here) drops
+            // to `.off`. This is what keeps a `.none` username/URL field lowercase
+            // from the first character, matching the system keyboard.
+            if shift == .on { shift = .off }
+            return
+        }
 
         if isSentenceStart(context: context) {
             shift = .on
@@ -132,15 +141,22 @@ public struct KeyboardLayoutModel: Equatable, Sendable {
     /// The rows of keys to display for the current page. The UI renders these;
     /// letter rows honor the shift state for casing.
     public func currentRows() -> [[String]] {
+        let base = currentBaseRows()
+        guard page == .letters, shift != .off else { return base }
+        return base.map { row in row.map { $0.uppercased() } }
+    }
+
+    /// The BASE (uncased) rows of keys for the current page. The UI layer bakes
+    /// these into each key's `.character` action so casing is resolved fresh at
+    /// emit time from the LIVE shift state — never frozen at build time. The
+    /// displayed face comes from `currentRows()` (cased); the emitted character
+    /// comes from `apply(.character(base))`. These are the same base letters, so a
+    /// face and its action can never drift out of sync (BLOCKER: baked casing).
+    public func currentBaseRows() -> [[String]] {
         switch page {
-        case .letters:
-            let rows = Self.letterRows
-            let upper = (shift != .off)
-            return rows.map { row in row.map { upper ? $0.uppercased() : $0 } }
-        case .symbols:
-            return Self.symbolRows
-        case .numbers:
-            return Self.numberRows
+        case .letters: return Self.letterRows
+        case .symbols: return Self.symbolRows
+        case .numbers: return Self.numberRows
         }
     }
 

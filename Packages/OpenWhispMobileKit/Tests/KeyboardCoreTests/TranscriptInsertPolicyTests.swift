@@ -22,6 +22,7 @@ private final class FakeSink: KeyboardTextSink {
     var returnKeyLabel: ReturnKeyLabel { label }
     var isSecureField: Bool { secure }
     var hasFullAccess: Bool { fullAccess }
+    var autocapType: KeyboardAutocapType { .sentences }
 }
 
 final class TranscriptInsertPolicyTests: XCTestCase {

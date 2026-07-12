@@ -21,6 +21,15 @@ final class KeyButton: UIView {
     /// lights the cap. Ignored for non-control kinds.
     var isLatched: Bool = false { didSet { updateAppearance() } }
 
+    /// The mic key's engaged state. `latched` lights the cap fill (a capture or a
+    /// ready transcript is active); `accent` tints the glyph in the accent color
+    /// (a transcript is ready to drop). The two are distinct so `.showCapturing`
+    /// (latched, no accent — animated pulse carries the "listening" signal) and
+    /// `.insertPending` (latched AND accent — steady, tinted "tap to insert") do
+    /// NOT render identically. Ignored for non-mic kinds.
+    var micLatched: Bool = false { didSet { updateAppearance() } }
+    var micAccent: Bool = false { didSet { updateAppearance() } }
+
     /// A caps-lock indicator line under the shift glyph.
     var showsCapsLockIndicator: Bool = false { didSet { setNeedsDisplay() } }
 
@@ -113,7 +122,11 @@ final class KeyButton: UIView {
         case .space:
             fill = isPressed ? KeyboardTheme.controlKeyPressed : KeyboardTheme.letterKey
         case .mic:
-            fill = isPressed ? KeyboardTheme.controlKeyPressed : KeyboardTheme.controlKey
+            if micLatched {
+                fill = KeyboardTheme.activeControlKey
+            } else {
+                fill = isPressed ? KeyboardTheme.controlKeyPressed : KeyboardTheme.controlKey
+            }
         case .control:
             if isLatched {
                 fill = KeyboardTheme.activeControlKey
@@ -122,9 +135,14 @@ final class KeyButton: UIView {
             }
         }
         backgroundColor = fill
-        // A latched shift lights its glyph in the accent color; caps lock too.
+        // A latched shift lights its glyph in the accent color; caps lock too. The
+        // mic key tints its glyph in the accent color ONLY when `micAccent` is set
+        // (a transcript is ready to drop) — capturing stays neutral and relies on
+        // the pulse, so the two states look different.
         if kind == .control, isLatched, case .shift = action {
             iconView?.tintColor = KeyboardTheme.keyText
+        } else if kind == .mic, micAccent {
+            iconView?.tintColor = KeyboardTheme.accent
         } else {
             iconView?.tintColor = KeyboardTheme.controlKeyText
         }

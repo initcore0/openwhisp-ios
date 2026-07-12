@@ -76,6 +76,51 @@ public struct BackspaceRepeatCadence: Equatable, Sendable {
     }
 }
 
+// MARK: - Backspace hold bookkeeping
+
+/// The pure bookkeeping behind a single backspace hold, extracted from the UIKit
+/// touch handlers so the "was this a plain tap?" decision is tested, not left to a
+/// device. It separates the LIVE repeat counter (which the accelerating cadence
+/// reads and which a slide-off resets) from the TALLY of repeats actually fired
+/// during the hold. The old view code conflated the two: a slide-off zeroed the
+/// only counter, so touch-up saw "0 repeats" and emitted a spurious extra deletion
+/// (MINOR: slide-off fires one extra backspace).
+public struct BackspaceHold: Equatable, Sendable {
+    /// Repeats the cadence has scheduled since the current run began; a slide-off
+    /// resets this (so a later re-entry restarts the acceleration).
+    public private(set) var liveRepeatCount = 0
+    /// Repeats actually fired across the WHOLE hold, never reset by a slide-off —
+    /// the source of truth for whether the release was a plain tap.
+    public private(set) var repeatsFired = 0
+
+    public init() {}
+
+    /// Finger-down on backspace: begin a fresh hold.
+    public mutating func begin() {
+        liveRepeatCount = 0
+        repeatsFired = 0
+    }
+
+    /// A repeat tick fired: bump both counters.
+    public mutating func fireRepeat() {
+        liveRepeatCount += 1
+        repeatsFired += 1
+    }
+
+    /// The finger slid off the key: stop the live run (reset the live counter) but
+    /// PRESERVE the fired tally so the eventual release isn't misread as a tap.
+    public mutating func slideOff() {
+        liveRepeatCount = 0
+    }
+
+    /// On release: was this a plain tap (no repeats fired the whole hold)? A plain
+    /// tap should emit exactly one backspace; a hold that already fired repeats must
+    /// NOT emit an extra one.
+    public var releaseWasPlainTap: Bool {
+        repeatsFired == 0
+    }
+}
+
 // MARK: - Double-tap gestures
 
 /// The pure decisions behind the two double-tap shortcuts the UIKit layer detects

@@ -111,6 +111,23 @@ final class KeyboardLayoutModelTests: XCTestCase {
         XCTAssertEqual(m.shift, .off)
     }
 
+    func testAutocapDisabledDropsInitialOneShotShift() {
+        // MINOR 5: a `.none` field (autocap disabled) must not stay armed at field
+        // start — the keyboard would leading-cap the first character otherwise. The
+        // model starts many fields with a one-shot `.on`; disabled autocap disarms it.
+        var m = KeyboardLayoutModel(page: .letters, shift: .on, autocapEnabled: false)
+        m.updateAutocap(contextBeforeCaret: nil)
+        XCTAssertEqual(m.shift, .off, "disabled autocap disarms the field-start one-shot shift")
+        XCTAssertEqual(m.apply(.character("h")), .text("h"),
+                       "first character in a .none field is lowercase")
+    }
+
+    func testAutocapDisabledStillNeverTouchesCapsLock() {
+        var m = KeyboardLayoutModel(page: .letters, shift: .capsLock, autocapEnabled: false)
+        m.updateAutocap(contextBeforeCaret: nil)
+        XCTAssertEqual(m.shift, .capsLock, "a deliberate caps lock survives even with autocap off")
+    }
+
     // MARK: Rendered rows
 
     func testLetterRowsUppercaseWhenShifted() {
@@ -133,6 +150,72 @@ final class KeyboardLayoutModelTests: XCTestCase {
         let symbols = KeyboardLayoutModel(page: .symbols, shift: .off, autocapEnabled: false)
         XCTAssertEqual(symbols.currentRows().count, 3)
         XCTAssertNotEqual(symbols.currentRows()[0], numbers.currentRows()[0])
+    }
+
+    // MARK: Casing resolves at emit time from base characters (BLOCKER 1)
+    //
+    // The UIKit layer bakes each key's `.character` action from `currentBaseRows()`
+    // (uncased) and resolves casing only at `apply` time. These tests pin that
+    // contract at the core so the "types ALL CAPS forever / stale-baked casing after
+    // a page round-trip" regression can never come back through the model.
+
+    func testBaseRowsAreAlwaysLowercaseRegardlessOfShift() {
+        // The actions are built from these; if they were ever pre-cased the emitted
+        // character would freeze at build time (the ALL-CAPS bug).
+        for shift in [ShiftState.off, .on, .capsLock] {
+            let m = KeyboardLayoutModel(page: .letters, shift: shift, autocapEnabled: false)
+            XCTAssertEqual(m.currentBaseRows().first?.first, "q",
+                           "base rows must stay uncased (shift=\(shift)) so actions carry the base char")
+        }
+    }
+
+    func testEmittedCasingTracksLiveShiftFromBaseCharacter() {
+        // Base "h" + shift .on emits "H", then the one-shot reverts and "e" is "e".
+        var m = KeyboardLayoutModel(page: .letters, shift: .on, autocapEnabled: false)
+        let base = m.currentBaseRows()      // what the UI baked into the actions
+        let h = base[1][5]                  // "asdfgh…" → index 5 is "h"
+        XCTAssertEqual(h, "h")
+        XCTAssertEqual(m.apply(.character(h)), .text("H"))
+        XCTAssertEqual(m.shift, .off, "one-shot reverts after one character")
+        XCTAssertEqual(m.apply(.character("e")), .text("e"), "casing tracks live state, not baked")
+    }
+
+    func testCapsLockEmitsCapsPersistentlyFromBaseCharacter() {
+        var m = KeyboardLayoutModel(page: .letters, shift: .capsLock, autocapEnabled: false)
+        XCTAssertEqual(m.apply(.character("h")), .text("H"))
+        XCTAssertEqual(m.apply(.character("e")), .text("E"))
+        XCTAssertEqual(m.apply(.character("y")), .text("Y"))
+        XCTAssertEqual(m.shift, .capsLock, "caps lock persists across characters")
+    }
+
+    func testEmittedCasingTracksLiveStateAfterPageRoundTrips() {
+        // 123 → #+= → ABC round-trip with shift off: letters must emit LOWERCASE.
+        // The old UIKit layer baked cased actions and went stale after this trip.
+        var m = KeyboardLayoutModel(page: .letters, shift: .off, autocapEnabled: false)
+        _ = m.apply(.page(.numbers))
+        _ = m.apply(.page(.symbols))
+        _ = m.apply(.page(.letters))
+        XCTAssertEqual(m.shift, .off, "returning to letters with shift off stays off")
+        XCTAssertEqual(m.apply(.character("h")), .text("h"))
+        XCTAssertEqual(m.apply(.character("e")), .text("e"))
+        XCTAssertEqual(m.apply(.character("y")), .text("y"))
+
+        // Now engage shift AFTER the round-trip: casing must follow the live state.
+        _ = m.apply(.shift)                                  // → .on
+        XCTAssertEqual(m.apply(.character("h")), .text("H"))
+        XCTAssertEqual(m.apply(.character("i")), .text("i"), "one-shot consumed, back to lowercase")
+    }
+
+    func testDisplayedFaceAndEmittedCharacterAgreeForEveryLetter() {
+        // The face (currentRows, cased) and the emit (apply on the base char) must
+        // never diverge — the UIKit layer titles from one and acts from the other.
+        var m = KeyboardLayoutModel(page: .letters, shift: .capsLock, autocapEnabled: false)
+        let faces = m.currentRows().flatMap { $0 }
+        let bases = m.currentBaseRows().flatMap { $0 }
+        for (face, base) in zip(faces, bases) {
+            XCTAssertEqual(m.apply(.character(base)), .text(face),
+                           "emitted char for base '\(base)' must equal its shown face '\(face)'")
+        }
     }
 
     // MARK: Non-character actions

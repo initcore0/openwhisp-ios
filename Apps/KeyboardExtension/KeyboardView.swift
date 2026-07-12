@@ -43,10 +43,13 @@ final class KeyboardView: UIView {
     // for typing; multitouch shift+letter is a nicety we intentionally skip in v1).
     private weak var pressedKey: KeyButton?
 
-    // Backspace repeat.
+    // Backspace repeat. The tap-vs-repeat bookkeeping lives in the tested
+    // `BackspaceHold` core model: it keeps the live cadence counter separate from
+    // the fired-repeats tally so a slide-off can't make a release look like a plain
+    // tap (MINOR: slide-off fires one extra backspace).
     private let cadence = BackspaceRepeatCadence.system
     private var backspaceTimer: Timer?
-    private var backspaceRepeatCount = 0
+    private var backspaceHold = BackspaceHold()
 
     // Double-tap timing per control key.
     private var lastSpaceTapTime: TimeInterval = 0
@@ -91,16 +94,28 @@ final class KeyboardView: UIView {
     /// relayout.
     func styleMicKey(latched: Bool, accent: Bool) {
         guard let micKey else { return }
-        micKey.isLatched = accent
+        micKey.micLatched = latched
+        micKey.micAccent = accent
     }
 
     // MARK: - Layout construction
 
     private func buildLayout() {
-        rowStacks.forEach { $0.removeFromSuperview() }
+        // Tear down EVERYTHING from the previous build. `rootStack.arrangedSubviews`
+        // are the per-row CONTAINER views (each wrapping a row stack); removing only
+        // the inner stacks leaves those containers behind, so every rebuild appended
+        // 4 more and `.fillEqually` crushed the rows until the keyboard collapsed
+        // (BLOCKER: page toggles shrink rows). Remove each arranged subview from the
+        // stack AND its view hierarchy, and clear the width table so its
+        // `ObjectIdentifier` keys don't accumulate stale entries.
+        for child in rootStack.arrangedSubviews {
+            rootStack.removeArrangedSubview(child)
+            child.removeFromSuperview()
+        }
         rootStack.removeFromSuperview()
         keys.removeAll()
         rowStacks.removeAll()
+        widthUnits.removeAll()
         micKey = nil
 
         rootStack.axis = .vertical
@@ -116,13 +131,17 @@ final class KeyboardView: UIView {
             rootStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -metrics.bottomInset),
         ])
 
-        let letterRows = model.currentRows()
+        // Key ACTIONS carry the BASE (uncased) character; casing is resolved fresh
+        // at emit time by `KeyboardLayoutModel.apply`. Faces are (re)titled from the
+        // cased `currentRows()` in `refreshFaces()`. Never bake cased characters into
+        // an action, or shift/caps-lock freeze at build time (BLOCKER: ALL CAPS).
+        let baseRows = model.currentBaseRows()
 
         switch model.page {
         case .letters:
-            addLetterPageRows(letterRows)
+            addLetterPageRows(baseRows)
         case .numbers, .symbols:
-            addSymbolPageRows(letterRows)
+            addSymbolPageRows(baseRows)
         }
         addBottomRow()
 
@@ -262,11 +281,17 @@ final class KeyboardView: UIView {
     /// letters page (where shift recases the caps); on symbol pages the characters
     /// are fixed, so re-applying the same titles is a harmless no-op.
     private func refreshFaces() {
+        // Titles AND accessibility labels come from the CASED rows — the single
+        // source of truth for what each letter cap shows. This is what makes
+        // shift/caps-lock visibly track the live model after any page round-trip:
+        // the action is base, the face is re-cased here every time the model moves.
         let flat: [String] = model.currentRows().flatMap { $0 }
         var i = 0
         for key in keys where key.kind == .letter {
             guard i < flat.count else { break }
-            key.setTitle(flat[i])
+            let face = flat[i]
+            key.setTitle(face)
+            key.accessibilityLabel = face
             i += 1
         }
 
@@ -338,8 +363,12 @@ final class KeyboardView: UIView {
         // resolves against the key under the finger at lift, below).
         let stillInside = pressed.frame.insetBy(dx: -metrics.keySpacing, dy: -metrics.rowSpacing).contains(convert(point, to: pressed.superview))
         if !stillInside, case .backspace = pressed.action {
-            // Dragging off backspace stops the repeat.
-            stopBackspaceRepeat()
+            // Dragging off backspace stops the repeat timer and resets the LIVE
+            // counter — but preserves the fired tally, so a release after a slide-off
+            // is not misread as a plain tap (MINOR 3).
+            backspaceTimer?.invalidate()
+            backspaceTimer = nil
+            backspaceHold.slideOff()
         }
     }
 
@@ -350,10 +379,12 @@ final class KeyboardView: UIView {
         pressedKey = nil
 
         if case .backspace = pressed.action {
-            let firedRepeats = backspaceRepeatCount
+            // Ask the tested model whether this release was a plain tap. It uses the
+            // fired-repeats tally (which a slide-off does NOT reset), so a hold that
+            // already deleted characters never emits a spurious extra backspace.
+            let plainTap = backspaceHold.releaseWasPlainTap
             stopBackspaceRepeat()
-            // If the key was tapped (no repeats fired), emit a single backspace.
-            if firedRepeats == 0 {
+            if plainTap {
                 delegate?.keyboardView(self, didTap: .backspace)
             }
             return
@@ -413,18 +444,18 @@ final class KeyboardView: UIView {
     // MARK: - Backspace repeat
 
     private func startBackspaceRepeat() {
-        backspaceRepeatCount = 0
+        backspaceHold.begin()
         scheduleNextBackspace()
     }
 
     private func scheduleNextBackspace() {
-        let nextIndex = backspaceRepeatCount + 1
+        let nextIndex = backspaceHold.liveRepeatCount + 1
         let delay = cadence.delay(beforeRepeat: nextIndex)
         backspaceTimer?.invalidate()
         backspaceTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             guard let self else { return }
-            self.backspaceRepeatCount += 1
-            let word = self.cadence.deletesWord(afterRepeats: self.backspaceRepeatCount)
+            self.backspaceHold.fireRepeat()
+            let word = self.cadence.deletesWord(afterRepeats: self.backspaceHold.liveRepeatCount)
             self.delegate?.keyboardViewBackspaceRepeat(self, wordDeletion: word)
             self.scheduleNextBackspace()
         }
@@ -433,6 +464,6 @@ final class KeyboardView: UIView {
     private func stopBackspaceRepeat() {
         backspaceTimer?.invalidate()
         backspaceTimer = nil
-        backspaceRepeatCount = 0
+        backspaceHold.begin()   // fully reset for the next hold
     }
 }

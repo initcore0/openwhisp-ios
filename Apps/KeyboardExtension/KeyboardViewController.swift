@@ -63,6 +63,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        refreshConfigCache()
         buildKeyboard()
         wireDarwinPing()
     }
@@ -70,6 +71,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isVisible = true
+        // Pick up any config the host changed while we were away (cheap, once).
+        refreshConfigCache()
         // Autocap re-arm against the field we're attaching to.
         applyAutocapFromContext()
         // Return-trip contract (R0c): re-resolve + auto-insert any pending transcript.
@@ -159,6 +162,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             guard let self else { return }
             DispatchQueue.main.async {
                 guard self.isVisible else { return }
+                // The host may have republished config alongside the transcript.
+                self.refreshConfigCache()
                 self.refreshMicKey(trigger: .darwinPing)
             }
         }
@@ -166,11 +171,21 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
 
     // MARK: - Config
 
-    /// The keyboard config from the shared store (autocap/haptics), defaulting to
-    /// `.default` when Full Access is off (store unreadable). Autocap default is
-    /// on, so typing feels right even without Full Access.
-    private var config: KeyboardConfig {
-        handoff?.sharedState.readKeyboardConfig() ?? .default
+    /// A CACHED snapshot of the keyboard config from the shared store
+    /// (autocap/haptics). Reading it hits the disk (a JSON file read + decode); doing
+    /// that on every keystroke — as the old computed property did via
+    /// `applyAutocapFromContext` — is needless per-keypress I/O. The host publishes
+    /// config changes through the App Group, so we refresh the cache only when the
+    /// keyboard (re)appears and when a Darwin ping tells us something changed.
+    /// Defaults to `.default` when Full Access is off (store unreadable): autocap on,
+    /// so typing feels right even without Full Access.
+    private var cachedConfig: KeyboardConfig = .default
+    private var config: KeyboardConfig { cachedConfig }
+
+    /// Re-read the shared config from disk into the cache. Call sparingly — on
+    /// (re)appearance and on a Darwin ping, NOT per keystroke.
+    private func refreshConfigCache() {
+        cachedConfig = handoff?.sharedState.readKeyboardConfig() ?? .default
     }
 
     // MARK: - KeyboardViewDelegate
@@ -187,6 +202,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     }
 
     func keyboardViewBackspaceRepeat(_ view: KeyboardView, wordDeletion: Bool) {
+        dismissPanel()
         if wordDeletion {
             deleteWordBackward()
         } else {
@@ -196,6 +212,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     }
 
     func keyboardViewDidDoubleTapSpace(_ view: KeyboardView) {
+        dismissPanel()
         // The first tap already inserted a space (via the model). Decide with the
         // tested gesture model what the second tap means.
         switch KeyboardGesture.spaceDoubleTap(contextBeforeCaret: sink.contextBeforeCaret) {
@@ -210,6 +227,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     }
 
     func keyboardViewDidDoubleTapShift(_ view: KeyboardView) {
+        dismissPanel()
         // Drive the model's shift to the tested double-tap result deterministically,
         // reaching it via the model's own `.shift` transitions so the caps-lock
         // indicator and casing stay consistent with the state machine.
@@ -238,12 +256,15 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         let output = model.apply(action)
         switch output {
         case .text(let s):
+            dismissPanel()   // any typing dismisses a raised mic panel (its doc contract)
             sink.insert(s)
             applyAutocapFromContext()
         case .deleteBackward:
+            dismissPanel()
             sink.deleteBackward(1)
             applyAutocapFromContext()
         case .submitReturn:
+            dismissPanel()
             sink.insert("\n")
             applyAutocapFromContext()
         case .switchInputMode:
@@ -253,14 +274,22 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         case .refineLastTapped:
             break   // no refine affordance in v1
         case .none:
-            // Shift / page toggle changed the model but emit nothing.
+            // Shift / page toggle changed the model but emit nothing. These are
+            // still key presses, so a raised mic panel dismisses (it must never
+            // hover over the top rows once the user starts interacting — its doc
+            // contract is "dismiss on the next key").
+            dismissPanel()
             rerenderKeyFaces()
         }
     }
 
     /// Re-arm autocap from the live caret context and re-render the letter faces.
+    /// Sentence autocap is enabled only when BOTH the user config allows it AND the
+    /// host field hasn't opted out (`autocapitalizationType == .none`, e.g. a
+    /// username/URL field) — matching the system keyboard, which never leading-caps
+    /// a `.none` field.
     private func applyAutocapFromContext() {
-        model.autocapEnabled = config.autocap
+        model.autocapEnabled = config.autocap && (sink.autocapType != .none)
         model.updateAutocap(contextBeforeCaret: sink.contextBeforeCaret)
         rerenderKeyFaces()
     }
@@ -354,9 +383,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     private func renderMicKeyState(_ behavior: MicKeyBehavior) {
         switch behavior {
         case .showCapturing:
-            keyboardView?.styleMicKey(latched: true, accent: true)
+            // Latched (lit) but NOT accented — the pulse animation carries the
+            // "listening…" signal; the accent tint is reserved for "ready to drop".
+            keyboardView?.styleMicKey(latched: true, accent: false)
             startMicPulse()
         case .insertPending:
+            // Latched AND accented, steady (no pulse): a transcript is ready to insert.
             stopMicPulse()
             keyboardView?.styleMicKey(latched: true, accent: true)
         case .showCaptureUX, .explainFullAccess:
