@@ -299,6 +299,50 @@ state the host writes (`capturing`→`transcribing`→`idle`) is what the keyboa
 mic key reads. *Gate:* confirms the store-read fallback + 120 s expiry mitigations
 hold.
 
+#### WP10 Dictation-Session device checklist (R10a — armed background survival)
+
+The session state machine, driver plumbing, and stores are fully covered by
+`swift test` (SessionFlow exhaustive; SessionHolder with fakes; the status +
+partial stores tempdir-tested). What a simulator CANNOT prove — and what this
+checklist exists to burn down — is **R10a: does iOS actually keep the host process
+alive under the `audio` background mode across a real armed window, and at what
+battery/thermal cost.** Run this on a physical iPhone (iOS 18+) BEFORE the WP10c
+keyboard UX ships; a failure ⇒ shorten the max timeout and surface "session ended
+early" honestly (per the ARCHITECTURE §8 R10a mitigation).
+
+**Arming.** Deliver `openwhisp://session/arm` (a Shortcut, a Home-Screen action,
+or `xcrun simctl openurl booted openwhisp://session/arm` on the sim for the UX
+walk-through). Confirm: the full-screen "Session on — swipe back to your app"
+screen appears; the iOS **orange mic indicator turns on and stays on**; the Live
+Activity shows the armed state with an **End Session** button; the countdown
+reflects the Settings idle timeout.
+
+**Armed-survival matrix.** Arm a session, then for each cell leave it armed and,
+after the dwell, verify the host is still alive by driving a capture (post a
+`startCapture` command — via the WP10c keyboard once it lands, or a debug harness)
+and confirming a partial/final lands in `session/partial.json`:
+
+| Cell | How | Dwell | Pass = |
+|---|---|---|---|
+| **Locked** | Lock the phone while armed | 2 min, 10 min | capture still starts; orange indicator persisted through lock |
+| **Other app foreground** | Switch to Safari/Notes | 2 min, 10 min | capture still starts on command |
+| **Low Power Mode** | Settings ▸ Battery ▸ Low Power Mode ON, then arm | 2 min, 10 min | capture still starts, OR the session ends early *honestly* (status → off, Live Activity ends, "session ended early") — a SILENT dead host is a FAIL |
+
+Record for each cell: survived? / ended early (honest)? / silently dead (fail)?
+verbatim, into `docs/SPIKE_RESULTS.md`.
+
+**Battery over a 15-minute armed window.** Fully idle (no captures), arm with the
+`.never` timeout, note the battery percentage, leave the phone locked and
+untouched for 15 min, note the percentage again. Record the drop and the thermal
+state (Xcode ▸ Devices, or a debug thermal readout). This is the number that
+decides whether the default 5-min timeout is generous or needs to shrink.
+
+**Teardown honesty.** For each of: End Session (arming screen button), End Session
+(Live Activity button), idle timeout elapses, an incoming phone call — confirm the
+status drops to `.off`, the Live Activity ends, and the **orange mic indicator
+turns off**. The indicator lingering after teardown is a FAIL (it breaks the
+privacy narrative R10c depends on).
+
 #### Keyboard-extension enablement (manual — the flaky path Tier 2 skips)
 
 1. Settings ▸ General ▸ Keyboard ▸ Keyboards ▸ Add New Keyboard ▸ **OpenWhisp**.

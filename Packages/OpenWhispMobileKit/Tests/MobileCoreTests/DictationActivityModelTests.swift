@@ -35,11 +35,27 @@ final class DictationActivityModelTests: XCTestCase {
     }
 
     func testLabelsAndSymbolsAreStableAndNonEmpty() {
-        for phase in [DictationActivityPhase.starting, .listening, .transcribing, .inserted, .failed] {
+        for phase in [DictationActivityPhase.starting, .listening, .transcribing, .inserted, .failed, .armed] {
             let s = DictationActivityState(phase: phase)
             XCTAssertFalse(s.label.isEmpty, "phase \(phase) has an empty label")
             XCTAssertFalse(s.symbolName.isEmpty, "phase \(phase) has an empty symbol")
         }
+    }
+
+    // MARK: - Session mapping (WP10b)
+
+    func testFromSessionMapsPhases() {
+        XCTAssertEqual(DictationActivityState.fromSession(.armed).phase, .armed)
+        XCTAssertEqual(DictationActivityState.fromSession(.capturing).phase, .listening)
+        XCTAssertEqual(DictationActivityState.fromSession(.transcribing).phase, .transcribing)
+        XCTAssertEqual(DictationActivityState.fromSession(.off).phase, .inserted)
+    }
+
+    func testArmedIsSessionArmedAndNotTerminal() {
+        let s = DictationActivityState(phase: .armed)
+        XCTAssertTrue(s.isSessionArmed)
+        XCTAssertFalse(s.isTerminal)
+        XCTAssertFalse(DictationActivityState(phase: .listening).isSessionArmed)
     }
 
     func testCodableRoundTrip() throws {

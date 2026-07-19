@@ -36,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let parakeetVariant = "ow.parakeetVariant"
         static let whisperModel = "ow.whisperModel"
         static let languageHint = "ow.languageHint"
+        static let sessionIdleTimeout = "ow.sessionIdleTimeout"
     }
 
     @Published var didOnboard: Bool {
@@ -56,6 +57,17 @@ final class AppSettings: ObservableObject {
     @Published var languageHint: String {
         didSet { defaults.set(languageHint, forKey: Key.languageHint) }
     }
+    /// Dictation-session idle timeout (WP10, D11): how long an armed-but-idle session
+    /// survives before it auto-ends. Default `.fiveMinutes` — a short default owns the
+    /// mic-privacy story (the orange indicator is on for the whole armed window).
+    @Published var sessionIdleTimeout: DictationSessionConfig.IdleTimeout {
+        didSet { defaults.set(sessionIdleTimeout.rawValue, forKey: Key.sessionIdleTimeout) }
+    }
+
+    /// The persisted session config the arming flow uses.
+    var sessionConfig: DictationSessionConfig {
+        DictationSessionConfig(idleTimeout: sessionIdleTimeout)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -71,6 +83,8 @@ final class AppSettings: ObservableObject {
         self.whisperModel = defaults.string(forKey: Key.whisperModel)
             ?? "openai_whisper-small"
         self.languageHint = defaults.string(forKey: Key.languageHint) ?? "auto"
+        self.sessionIdleTimeout = defaults.string(forKey: Key.sessionIdleTimeout)
+            .flatMap(DictationSessionConfig.IdleTimeout.init(rawValue:)) ?? .fiveMinutes
     }
 
     /// The model id currently selected for the active engine family.

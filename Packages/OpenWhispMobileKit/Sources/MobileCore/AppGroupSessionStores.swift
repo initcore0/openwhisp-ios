@@ -11,6 +11,8 @@ import Foundation
 //   session/command.json          — the single-slot command mailbox
 //   session/claimed-<uuid>.json    — a transient claim during take
 //   session/partial.json           — the last-writer-wins live partial slot
+//   session/status.json            — the last-writer-wins session-status slot
+//                                     (AppGroupSessionStatusStore, SessionStatusStore.swift)
 
 // MARK: - AppGroupSessionCommandMailbox
 
@@ -178,15 +180,18 @@ enum SessionFileIO {
 /// The one way every target obtains the live session stores — host, keyboard, and
 /// widgets must all call this so they agree on paths and semantics (mirrors
 /// `HandoffEnvironment`). The `SessionStatus` itself rides the existing shared
-/// state file surface (WP10b wires it); this environment owns the command mailbox
-/// and the partial stream.
+/// state file surface (`AppGroupSessionStatusStore`, wired here in WP10b); this
+/// environment owns the command mailbox, the partial stream, AND the status slot so
+/// every target agrees on their paths.
 public struct SessionEnvironment {
     public let commandMailbox: AppGroupSessionCommandMailbox
     public let partialStore: AppGroupLivePartialStore
-    /// Reader-only view of the host's mirrored `SessionStatus` (WP10c). Reads
-    /// `session/status.json` in the same `session/` directory; the host (WP10b)
-    /// owns writes.
+    /// Reader-only view of the host's mirrored `SessionStatus` (WP10c, keyboard
+    /// side). Reads `session/status.json` in the same `session/` directory.
     public let statusReader: AppGroupSessionStatusReader
+    /// Read-write status slot (WP10b, host side). The host's `SessionHolder` is
+    /// the ONLY writer; it and `statusReader` address the same `status.json`.
+    public let statusStore: AppGroupSessionStatusStore
 
     /// nil when the App Group container is unavailable (missing entitlement) —
     /// callers degrade gracefully (session features stay invisible in the keyboard).
@@ -194,22 +199,25 @@ public struct SessionEnvironment {
         guard let container = AppGroup.containerURL(id: appGroupID) else { return nil }
         let dir = container.appendingPathComponent("session", isDirectory: true)
         guard let commandMailbox = try? AppGroupSessionCommandMailbox(directory: dir),
-              let partialStore = try? AppGroupLivePartialStore(directory: dir) else { return nil }
-        let statusReader = AppGroupSessionStatusReader(directory: dir)
+              let partialStore = try? AppGroupLivePartialStore(directory: dir),
+              let statusStore = try? AppGroupSessionStatusStore(directory: dir) else { return nil }
         return SessionEnvironment(
             commandMailbox: commandMailbox,
             partialStore: partialStore,
-            statusReader: statusReader
+            statusReader: AppGroupSessionStatusReader(directory: dir),
+            statusStore: statusStore
         )
     }
 
     public init(
         commandMailbox: AppGroupSessionCommandMailbox,
         partialStore: AppGroupLivePartialStore,
-        statusReader: AppGroupSessionStatusReader
+        statusReader: AppGroupSessionStatusReader,
+        statusStore: AppGroupSessionStatusStore
     ) {
         self.commandMailbox = commandMailbox
         self.partialStore = partialStore
         self.statusReader = statusReader
+        self.statusStore = statusStore
     }
 }

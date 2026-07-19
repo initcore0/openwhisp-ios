@@ -54,4 +54,31 @@ final class DeepLinkTests: XCTestCase {
         XCTAssertEqual(DeepLink.parse(url!), .dictate)
         XCTAssertNil(DeepLink.unknown("x").url)
     }
+
+    // MARK: - session/arm (WP10b)
+
+    func testSessionArmHost() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "openwhisp://session/arm")!), .sessionArm)
+    }
+
+    func testSessionArmIsCaseInsensitive() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "OpenWhisp://Session/Arm")!), .sessionArm)
+    }
+
+    func testSessionArmIgnoresExtraPathAndQuery() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "openwhisp://session/arm/now?src=kbd")!), .sessionArm)
+    }
+
+    func testSessionWithoutArmVerbIsUnknown() {
+        let url = "openwhisp://session"
+        XCTAssertEqual(DeepLink.parse(URL(string: url)!), .unknown(url))
+        let url2 = "openwhisp://session/disarm"
+        XCTAssertEqual(DeepLink.parse(URL(string: url2)!), .unknown(url2))
+    }
+
+    func testSessionArmCanonicalURLRoundTrips() {
+        let url = DeepLink.sessionArm.url
+        XCTAssertNotNil(url)
+        XCTAssertEqual(DeepLink.parse(url!), .sessionArm)
+    }
 }

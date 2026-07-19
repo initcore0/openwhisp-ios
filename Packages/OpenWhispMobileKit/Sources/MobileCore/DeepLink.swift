@@ -18,6 +18,11 @@ public enum DeepLink: Equatable, Sendable {
     /// keyboard-handoff capture (floor flow). This is the ONLY side-effectful
     /// route today; more may be added, but each must be explicit here.
     case dictate
+    /// `openwhisp://session/arm` — arm a Dictation Session (WP10, D11): the one
+    /// foreground hop that opens the arming screen and activates the background audio
+    /// session. Delivered by the user (a Shortcut / Home-Screen action); the keyboard
+    /// cannot open it [C9]. Extra path/query is ignored, like `.dictate`.
+    case sessionArm
     /// A well-formed `openwhisp://` URL whose host we don't route, or any URL
     /// that isn't the OpenWhisp scheme at all. Carries the raw string for logging.
     case unknown(String)
@@ -41,6 +46,15 @@ public enum DeepLink: Equatable, Sendable {
         switch components.host?.lowercased() {
         case "dictate":
             return .dictate
+        case "session":
+            // `openwhisp://session/arm` → arm. Any other/absent path under `session`
+            // is unrouted (future session verbs must be added explicitly here).
+            let verb = components.path
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .first
+                .map(String.init)?
+                .lowercased()
+            return verb == "arm" ? .sessionArm : .unknown(url.absoluteString)
         default:
             return .unknown(url.absoluteString)
         }
@@ -59,6 +73,8 @@ public enum DeepLink: Equatable, Sendable {
         switch self {
         case .dictate:
             return URL(string: "\(Self.scheme)://dictate")
+        case .sessionArm:
+            return URL(string: "\(Self.scheme)://session/arm")
         case .unknown:
             return nil
         }

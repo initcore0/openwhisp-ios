@@ -98,6 +98,25 @@ final class LiveActivityController {
         enqueue(.update(activity, state))
     }
 
+    /// Start (or reuse) the SESSION Live Activity (WP10b): the armed-window activity
+    /// that carries the End Session button. Mirrors `start`, but seeds `.armed` and
+    /// leaves teardown to `end()` (the session ends explicitly / on timeout, never on
+    /// a per-capture "Inserted" grace).
+    func startSession() {
+        endTask?.cancel(); endTask = nil
+        if activity != nil { endImmediately() }
+        guard activitiesEnabled else { return }
+        let initial = DictationActivityState(phase: .armed)
+        do {
+            activity = try Activity.request(
+                attributes: DictationActivityAttributes(),
+                content: .init(state: initial, staleDate: nil)
+            )
+        } catch {
+            activity = nil
+        }
+    }
+
     /// Show the terminal success state ("Inserted"), then end the activity after a
     /// short, user-visible beat.
     func finish() {
@@ -136,6 +155,7 @@ final class LiveActivityController {
     }
     #else
     func start(trigger: CaptureTrigger) {}
+    func startSession() {}
     func update(_ state: DictationActivityState) {}
     func finish() {}
     func end() {}

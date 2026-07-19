@@ -600,6 +600,32 @@ Driver notes (binding intent, not signatures):
   idle-timeout picker and a "mic stays available while a session is on"
   privacy explanation; the Live Activity carries End Session.
 
+WP10b additions (additive to the interfaces above — extend, don't rename):
+
+- **`SessionStatusStore` (MobileCore):** the store the `SessionStatus` "rides"
+  is a dedicated last-writer-wins single-slot file `session/status.json`
+  (`AppGroupSessionStatusStore` + `InMemorySessionStatusStore`), owned by
+  `SessionEnvironment`. WP10a shipped the `SessionStatus` value + staleness rule
+  but no store; the driver is the first writer, so it landed here (kept a
+  separate file from `FileSharedStateStore`'s blob because the heartbeat write
+  cadence would otherwise contend with the keyboard config).
+- **`LivePartialPublisher` (MobileCore, pure):** the ≤ 8/s throttle + monotonic
+  `seq` sequencer for the partial stream — the write/drop decision extracted so
+  it is `swift test`-covered without a clock. The driver owns the store write.
+- **`SessionHolder` seams (CaptureKit):** `SessionAudioControlling` (keep-alive
+  audio + silent tap, distinct from the per-capture `AudioSessionControlling`),
+  `SessionTimerScheduling` (idle check + heartbeat + 250 ms mailbox poll),
+  `SessionActivityDriving` (the Live Activity seam the host app implements,
+  since CaptureKit can't import ActivityKit). `CaptureCoordinating` gained an
+  `onPartial` getter/setter (the concrete coordinator already had it) so the
+  driver observes partials through the protocol.
+- **Live Activity:** `DictationActivityPhase.armed` + `fromSession(_:)` map the
+  cross-process `SessionStatus.Phase` to the session Live Activity; the armed
+  state carries **End Session** (`EndSessionIntent`, a `LiveActivityIntent` like
+  `StopDictationIntent`) rather than Stop.
+- **Deep link:** `openwhisp://session/arm` → `DeepLink.sessionArm` presents the
+  arming screen.
+
 ### 6.9 Mac-side counterpart (lives in the `openwhisp` repo)
 
 A new `LANBridgeServer`: `NWListener` + Bonjour advertise + TLS-PSK, feeding

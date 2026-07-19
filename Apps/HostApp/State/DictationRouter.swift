@@ -12,19 +12,27 @@ final class DictationRouter: ObservableObject {
     /// The trigger for the sheet to present, or nil when no sheet is up. Binding
     /// this to `.sheet(item:)` makes presentation a pure function of routing.
     @Published var pending: PendingSheet?
+    /// True while the Dictation-Session arming screen should be presented (WP10b).
+    /// Set by `openwhisp://session/arm`; the arming screen arms on appear and clears
+    /// this when the user swipes it away or ends the session.
+    @Published var presentingSessionArm = false
 
     struct PendingSheet: Identifiable, Equatable {
         let id = UUID()
         let trigger: CaptureTrigger
     }
 
-    /// Handle an incoming URL. Only `openwhisp://dictate` presents the sheet; any
-    /// other route is ignored (logged by the caller). Returns whether it routed.
+    /// Handle an incoming URL. `openwhisp://dictate` presents the sheet;
+    /// `openwhisp://session/arm` presents the arming screen; any other route is
+    /// ignored (logged by the caller). Returns whether it routed.
     @discardableResult
     func handle(url: URL) -> Bool {
         switch DeepLink.parse(url) {
         case .dictate:
             present(trigger: .keyboardHandoff)
+            return true
+        case .sessionArm:
+            presentingSessionArm = true
             return true
         case .unknown:
             return false

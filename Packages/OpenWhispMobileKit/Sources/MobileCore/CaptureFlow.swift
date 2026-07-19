@@ -327,6 +327,12 @@ public struct CaptureFlow: Equatable, Sendable {
 public protocol CaptureCoordinating: AnyObject {
     var state: CaptureState { get }
     var onStateChange: ((CaptureState) -> Void)? { get set }
+    /// Rolling interim partials from the engine, verbatim (NOT part of the publish
+    /// contract — only the cleaned final reaches insertion). The `SessionHolder`
+    /// driver (WP10b) observes these to stream `LivePartial`s into the App Group so
+    /// the keyboard renders dictation live at the caret (D12). Added additively for
+    /// WP10b; the composer/sheet already read the concrete property.
+    var onPartial: ((String) -> Void)? { get set }
     func begin(trigger: CaptureTrigger) async
     /// User stop — capture ends but transcription still runs.
     func stop() async

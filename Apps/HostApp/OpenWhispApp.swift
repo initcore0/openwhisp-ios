@@ -12,6 +12,11 @@ struct OpenWhispApp: App {
     @StateObject private var history = HistoryStore()
     @StateObject private var labRuns = LabRunStore()
     @StateObject private var dictationRouter = DictationRouter()
+    /// Dictation-Session host driver front end (WP10b). Owns the armed-window
+    /// `SessionHolder` and the arming screen's observable state. Given its own
+    /// `AppSettings` (like `IntentCaptureController`) so the idle-timeout choice is
+    /// read consistently even though it's a distinct instance.
+    @StateObject private var sessionController = SessionController(settings: AppSettings())
     /// P2P sync front end (WP6). Foreground-only; auto-syncs paired Macs when the
     /// app becomes active and the peer resolves on the LAN within a short window.
     @StateObject private var sync = OpenWhispApp.makeSyncCoordinator()
@@ -59,6 +64,7 @@ struct OpenWhispApp: App {
                 .environmentObject(history)
                 .environmentObject(labRuns)
                 .environmentObject(dictationRouter)
+                .environmentObject(sessionController)
                 .environmentObject(sync)
                 .environmentObject(remote)
                 .task {
@@ -67,6 +73,9 @@ struct OpenWhispApp: App {
                     IntentCaptureController.shared.onRequestOpenApp = { [weak dictationRouter] in
                         dictationRouter?.present(trigger: .appIntent)
                     }
+                    // Wire the End Session intent (Live Activity button / Shortcuts) to
+                    // the session controller (WP10b).
+                    sessionController.install()
                     // Deterministic XCUITest entry: `-openwhisp-uitest-open-dictate`
                     // presents the dictation sheet on launch, exercising the SAME
                     // router path the `openwhisp://dictate` deep link takes, without
@@ -95,6 +104,11 @@ struct OpenWhispApp: App {
             if newPhase == .active {
                 sync.autoSyncOnForeground()
             }
+            // NOTE: an armed Dictation Session is DELIBERATELY not torn down when the
+            // app merely backgrounds (`.background`) — surviving the app resigning
+            // active under the `audio` background mode is the whole point (D11). The
+            // clean teardown happens on explicit End Session, the idle timeout, an
+            // unrecoverable interruption, or `willTerminate` (below).
         }
     }
 }
