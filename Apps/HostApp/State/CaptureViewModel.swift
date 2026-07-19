@@ -35,6 +35,9 @@ final class CaptureViewModel: ObservableObject {
     @Published private(set) var levels: [Float] = []
     /// Whether mic permission has been denied (drives an inline explainer).
     @Published private(set) var micDenied: Bool = false
+    /// True while a capture's "Preparing…" includes staging the model for the
+    /// first time (a large download) — the UI says so instead of looking hung.
+    @Published private(set) var isFirstUseDownload: Bool = false
 
     private let settings: AppSettings
     private let history: HistoryStore
@@ -91,6 +94,11 @@ final class CaptureViewModel: ObservableObject {
         levels = []
         lastRawFinal = ""
 
+        // Honest first-use state: when the active model isn't on disk yet, the
+        // engine's start will trigger the (multi-hundred-MB) self-staging
+        // download — surface that instead of a bare "Preparing…".
+        isFirstUseDownload = !EngineCache.shared.isModelStaged(settings.engineSelection)
+
         let engine = makeStreamingEngine()
         let coordinator = CaptureCoordinator(
             engine: engine,
@@ -113,12 +121,9 @@ final class CaptureViewModel: ObservableObject {
     }
 
     private func makeStreamingEngine() -> StreamingTranscriptionEngine {
-        switch settings.engineFamily {
-        case .parakeet:
-            return ParakeetMobileEngine(variantID: settings.parakeetVariant)
-        case .whisperKit:
-            return WhisperKitMobileEngine(modelName: settings.whisperModel)
-        }
+        // Shared warm instance — a fresh engine per capture re-loads the CoreML
+        // models from disk every time (seconds of "Preparing…" per dictation).
+        EngineCache.shared.engine(for: settings.engineSelection)
     }
 
     // MARK: - State mirroring

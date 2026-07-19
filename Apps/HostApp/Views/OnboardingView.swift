@@ -122,9 +122,11 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Download the model?")
                 .font(.title2.bold())
-            Text("The transcription model runs on-device. You can download it now, or "
-                 + "let it download automatically the first time you dictate. This is the "
-                 + "only network request OpenWhisp ever makes.")
+            Text("The transcription model runs on-device and is a large one-time "
+                 + "download (hundreds of MB — best on Wi-Fi). Downloading it now is "
+                 + "strongly recommended: if you skip, your FIRST dictation will sit "
+                 + "on \u{201C}Preparing\u{2026}\u{201D} while it downloads. This is the only network "
+                 + "request OpenWhisp ever makes.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 

@@ -121,10 +121,6 @@ final class IntentCaptureController {
 /// Build the user-selected streaming engine (shared with the composer/sheet logic).
 @MainActor
 private func ParakeetOrWhisper(settings: AppSettings) -> StreamingTranscriptionEngine {
-    switch settings.engineFamily {
-    case .parakeet:
-        return ParakeetMobileEngine(variantID: settings.parakeetVariant)
-    case .whisperKit:
-        return WhisperKitMobileEngine(modelName: settings.whisperModel)
-    }
+    // Shared warm instance (see EngineCache) — never a fresh engine per capture.
+    EngineCache.shared.engine(for: settings.engineSelection)
 }
