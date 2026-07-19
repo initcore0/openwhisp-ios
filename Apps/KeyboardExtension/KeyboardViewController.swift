@@ -524,8 +524,16 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         case .edit(let deleteBackward, let insert):
             if deleteBackward > 0 { sink.deleteBackward(deleteBackward) }
             if !insert.isEmpty { sink.insert(insert) }
-            // The final settled this capture; re-arm autocap against the new caret.
-            if partial.isFinal { applyAutocapFromContext() }
+            if partial.isFinal {
+                // The final settled this capture; re-arm autocap against the new caret.
+                applyAutocapFromContext()
+                // The live final IS the insertion for this capture — retire the WP5
+                // pending transcript (published under the same id, §6.8) so the
+                // floor flow can't insert a second copy once the session disarms.
+                // Suppressed (secure-field) captures never reach this branch and
+                // keep their pending for the WP5 path.
+                _ = try? handoff?.store.consume(id: partial.captureID, now: Date())
+            }
         }
     }
 
