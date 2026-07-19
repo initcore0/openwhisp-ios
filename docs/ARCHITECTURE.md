@@ -154,6 +154,8 @@ already.
 | **D8** | **The keyboard mic key = state-aware affordance, not a recorder** | Full Access off → explainer sheet. No pending transcript → teaches/launches the capture path chosen in WP2 (Action button setup, or manual app-switch flow). Pending transcript exists → inserts it. The key never pretends to record. [C1, C9] |
 | **D9** | **Mac stays the always-on MCP hub; phone is MCP client + optional foreground-only server** | iOS backgrounding kills server sockets in ~30 s [C7]. Phone drives Mac tools over the paired link; "lend the phone's mic to an agent" works only with the app foregrounded. |
 | **D10** | **Bundle IDs**: app `app.openwhisp.ios`, keyboard `app.openwhisp.ios.keyboard`, widgets `app.openwhisp.ios.widgets`; App Group `group.app.openwhisp.ios`; Bonjour service `_openwhisp._tcp` (same as Mac). | Matches the openwhisp.app domain. |
+| **D11** | **Dictation Sessions (WP10): the host holds the audio session ALIVE IN THE BACKGROUND inside a user-armed, auto-expiring window; the keyboard mic key becomes a live remote control for capture during that window.** One app-hop arms the session; every dictation after that is instant, no app switch. Idle timeout is user-configurable (5 min default / 15 min / 1 h / never), and the session ends explicitly from the keyboard, the app, the Live Activity, or the timeout. | This is how the category leader (Wispr Flow "Flow Sessions") delivers keyboard dictation despite [C1]/[C9] — verified 2026-07 (see RESEARCH.md addendum): keyboards still have no mic; competitors amortize ONE foreground hop across a whole session instead of paying it per dictation. Our `audio` UIBackgroundMode + `AudioRecordingIntent` already permit exactly this. The mic privacy indicator stays on for the armed window — that is honest and unavoidable, and the privacy copy owns it. Rejected: per-dictation app-hop (today's floor flow — measurably worse UX, stays as the fallback when no session is armed). |
+| **D12** | **Live insertion: while capturing in a session, the host streams rolling PARTIALS through the App Group and the keyboard renders them at the caret via `textDocumentProxy` diff-edits (delete-suffix + insert), then swaps in the cleaned final.** | The visible "transcribes in front of you" quality bar. Same D7 discipline (App Group only, Data Protection, expiry); Darwin pings are wake-ups, the store is the truth. A pure differ in KeyboardCore keeps the edit math exhaustively testable. Secure-field policy applies to partials exactly as to finals — a session capture NEVER renders into `isSecureField`. |
 
 ---
 
@@ -168,6 +170,16 @@ already.
    instantly; otherwise inserts on next keyboard appearance.
    *Gated on the WP2/R0a real-device spike; known reports of background-start
    failures from some surfaces.*
+1.5. **Session — keyboard-live dictation (WP10, D11/D12):** user taps the
+   keyboard mic key with no session armed → one hop into the host app arms a
+   **Dictation Session** (audio session activated, "Session on — swipe back to
+   your app" screen) → user swipes back → for the rest of the armed window the
+   keyboard mic key **starts/stops capture instantly**: the host records and
+   transcribes in the background, streams partials through the App Group, and
+   the keyboard renders them live at the caret, swapping in the cleaned final
+   on stop. The Live Activity shows the armed/capturing state and carries the
+   End Session button. Idle timeout (default 5 min) or explicit end disarms.
+   *This is the competitive UX; flows 1 and 2 remain as the no-session paths.*
 2. **Floor — quick app switch (always works, App-Store-safe):** keyboard mic
    key opens the host's compact **dictation sheet** (mechanism decided by
    R0b: manual switch vs. the unsupported-but-common openURL hack — measure,
@@ -457,7 +469,115 @@ upstream schema addition, WP0b, schema v3 with v2 decode fallback.)
 - **Foreground-only phone MCP server (post-v1):** Streamable HTTP via the MCP
   Swift SDK while the app is open — "lend the phone's mic to an agent" mode.
 
-### 6.7 Mac-side counterpart (lives in the `openwhisp` repo)
+### 6.8 Dictation Sessions (WP10) — session seam (MobileCore) + drivers
+
+The session machinery reuses the WP5 patterns wholesale: pure state machine in
+MobileCore, file stores in the App Group with the handoff store's atomicity
+discipline, Darwin notifications as payload-free wake-ups with store-read
+fallback, OS-bound drivers in CaptureKit / the keyboard shell.
+
+```swift
+/// User-facing session config (persisted in SharedStateStore's keyboard config).
+public struct DictationSessionConfig: Codable, Equatable, Sendable {
+    public enum IdleTimeout: String, Codable, CaseIterable, Sendable {
+        case fiveMinutes, fifteenMinutes, oneHour, never
+    }
+    public var idleTimeout: IdleTimeout      // default .fiveMinutes
+}
+
+/// The session's phase as the HOST mirrors it into the App Group. `updatedAt`
+/// is a staleness fence: the host heartbeats while armed (≥1/15 s), and the
+/// keyboard treats an `armed`/`capturing` status older than 30 s as `off`
+/// (host was jetsammed/killed — never show a live mic key for a dead host).
+public struct SessionStatus: Codable, Equatable, Sendable {
+    public enum Phase: String, Codable, Sendable { case off, armed, capturing, transcribing }
+    public let phase: Phase
+    public let sessionID: UUID?
+    public let armedAt: Date?
+    public let expiresAt: Date?              // armedAt + idleTimeout; nil = .never
+    public let updatedAt: Date
+}
+
+/// Keyboard → host command channel: single-slot mailbox file in the App Group
+/// (same O_EXCL claim-rename atomicity as the handoff store) + Darwin ping
+/// "app.openwhisp.session.command". Commands expire in 5 s — a stale
+/// startCapture must never fire minutes later.
+public enum SessionCommand: String, Codable, Sendable {
+    case startCapture, stopCapture, cancelCapture, endSession
+}
+public protocol SessionCommandMailbox: Sendable {
+    func post(_ cmd: SessionCommand, now: Date) throws       // keyboard side
+    func take(now: Date) throws -> SessionCommand?           // host side (atomic, expiring)
+}
+
+/// Live partial stream (host → keyboard): last-writer-wins single file in the
+/// App Group + Darwin ping "app.openwhisp.session.partial" (throttled ≤ 8/s).
+/// `seq` is monotonic per capture; the keyboard ignores regressions. `isFinal`
+/// carries the CLEANED text (the only path a raw partial is replaced wholesale).
+public struct LivePartial: Codable, Equatable, Sendable {
+    public let captureID: UUID
+    public let seq: Int
+    public let text: String
+    public let isFinal: Bool
+    public let updatedAt: Date
+}
+public protocol LivePartialStore: Sendable {
+    func write(_ p: LivePartial) throws
+    func read() throws -> LivePartial?
+    func clear() throws
+}
+
+/// Pure session state machine (MobileCore, tested exhaustively, CaptureFlow's
+/// sibling): the HOST drives it. Arm/disarm, command intake, capture
+/// delegation to CaptureFlow, idle-timeout bookkeeping, interruption teardown.
+public struct SessionFlow {
+    public enum Event { case arm(config: DictationSessionConfig, now: Date), disarm,
+                        command(SessionCommand, now: Date),
+                        captureChanged(CaptureState), idleTick(now: Date),
+                        interrupted, appWillTerminate }
+    public enum Effect { case activateAudioSession, deactivateAudioSession,
+                         beginCapture(CaptureTrigger), endCapture(cancel: Bool),
+                         publishStatus(SessionStatus),
+                         updateActivity(SessionStatus), endActivity,
+                         scheduleIdleCheck(at: Date) }
+    public private(set) var status: SessionStatus
+    public mutating func handle(_ event: Event) -> [Effect]
+}
+
+/// Pure live-insert differ (KeyboardCore): minimal textDocumentProxy edit
+/// turning the previously rendered partial into the new one. Exhaustively
+/// tested (prefix growth, mid-string revision, shrink, final swap, empty).
+public struct LiveInsertDiffer {
+    public static func edits(from rendered: String, to next: String)
+        -> (deleteBackward: Int, insert: String)
+}
+```
+
+Driver notes (binding intent, not signatures):
+
+- **Host `SessionHolder` (CaptureKit, @MainActor):** owns the armed window.
+  Arming activates the shared `AVAudioSession` (`.playAndRecord`,
+  `.measurement`) and keeps a zero-cost engine tap alive so iOS keeps the
+  process running under the `audio` background mode; capture start/stop
+  reuses the existing `CaptureCoordinator` with trigger `.keyboardHandoff`.
+  Listens for the command Darwin ping AND polls the mailbox at 250 ms while
+  armed (Darwin is best-effort). Publishes partials from the engine's partial
+  callback into `LivePartialStore`. Ends the session on: idle timeout,
+  `endSession` command, audio interruption it cannot recover, app termination.
+- **Keyboard (extension shell over KeyboardCore):** `MicKeyResolver` grows
+  session-aware behaviors — `.startSessionHop` (no session: today's floor
+  flow), `.startCapture` / `.stopCapture` (armed session: post command, render
+  partial stream via `LiveInsertDiffer`). Partial rendering NEVER runs when
+  `isSecureField`; the final falls back to the WP5 pending-transcript path if
+  live rendering was suppressed. With Full Access off, session features are
+  invisible (D8's explainer unchanged) [C2, C8].
+- **Arming UX (host):** a minimal full-screen "Session on — swipe back to
+  your app" state (post-iOS-26.4 there is NO sanctioned auto-return; the
+  manual swipe-back is what the market leader ships too). Settings gains the
+  idle-timeout picker and a "mic stays available while a session is on"
+  privacy explanation; the Live Activity carries End Session.
+
+### 6.9 Mac-side counterpart (lives in the `openwhisp` repo)
 
 A new `LANBridgeServer`: `NWListener` + Bonjour advertise + TLS-PSK, feeding
 accepted connections into the existing `BridgeRouter`/`AgentBridgeHost`
@@ -534,3 +654,6 @@ CI: GitHub Actions macOS runner — `swift test` on the package, `xcodegen` +
 | WhisperKit peak RAM on low-RAM iPhones (host jetsam during transcription) | WP3 benchmark matrix (tiny/base/small × iPhone 12/SE/15/16) before defaulting a model. |
 | App review: Full Access scrutiny | 4.4.1-by-construction (WP4 ships a working keyboard with Full Access off) + review notes + open source. |
 | Upstream visibility churn (WP0 makes ~30 types public) | Mechanical PR, `swift test` green upstream; branch-pin until tagged. |
+| **R10a** background keep-alive: iOS may still suspend the host despite the `audio` mode if the idle tap is judged silent/inactive; battery + thermals of an armed hour | WP10 device spike: armed-session survival matrix (locked / other-app-foreground / low-power-mode) + battery measurement BEFORE keyboard UX ships; failure ⇒ shorten max timeout, surface "session ended early" honestly. |
+| **R10b** Darwin latency/coalescing makes live partials stutter | Store is the truth; keyboard polls at 250 ms while `capturing` as the floor, Darwin pings are opportunistic. Throttle writes to ≤ 8/s. |
+| **R10c** App Review: continuously-armed mic window | Privacy narrative owns the orange indicator ("mic stays available while a session is on — that's the point, and it's visible"); default 5 min timeout; End Session on every surface; 4.4.1 unaffected (typing never gates on sessions). Market precedent exists (Wispr Flow). |
