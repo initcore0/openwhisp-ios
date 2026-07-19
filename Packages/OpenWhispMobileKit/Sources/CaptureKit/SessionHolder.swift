@@ -229,7 +229,7 @@ public final class SessionHolder {
         // peek the composer/sheet do). If it yields nil the interim stream's last text
         // already stands; we just return to armed.
         if case .published(let id) = state, let cleaned = cleanedFinal(id) {
-            if let p = publisher.final(cleaned, at: now()) {
+            if let p = publisher.final(cleaned, pendingID: id, at: now()) {
                 try? partialStore.write(p)
                 notifyPartial()
             }

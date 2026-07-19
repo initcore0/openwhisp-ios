@@ -81,6 +81,18 @@ final class LivePartialPublisherTests: XCTestCase {
         XCTAssertEqual(p?.seq, 1)
     }
 
+    func testFinalCarriesPendingIDAndInterimsDoNot() {
+        // §6.8 final-swap contract: the keyboard consumes the pending by the id
+        // riding the final — captureID is a stream identity, not the pending's id.
+        var pub = LivePartialPublisher()
+        _ = pub.begin()
+        XCTAssertNil(pub.offer("raw", now: 0, at: d0)?.pendingID)
+        let pending = UUID()
+        let f = pub.final("Clean.", pendingID: pending, at: d0)
+        XCTAssertEqual(f?.pendingID, pending)
+        XCTAssertEqual(f?.isFinal, true)
+    }
+
     func testEndStopsFurtherPartials() {
         var pub = LivePartialPublisher()
         _ = pub.begin()
@@ -91,9 +103,12 @@ final class LivePartialPublisherTests: XCTestCase {
     }
 }
 
-// Convenience overload used above so the final call reads naturally in tests.
+// Convenience overloads used above so the final calls read naturally in tests.
 private extension LivePartialPublisher {
     mutating func final(_ cleaned: String, now: TimeInterval) -> LivePartial? {
-        final(cleaned, at: Date(timeIntervalSince1970: 3_000_000))
+        final(cleaned, pendingID: nil, at: Date(timeIntervalSince1970: 3_000_000))
+    }
+    mutating func final(_ cleaned: String, at date: Date) -> LivePartial? {
+        final(cleaned, pendingID: nil, at: date)
     }
 }

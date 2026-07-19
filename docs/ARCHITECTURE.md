@@ -587,13 +587,14 @@ Driver notes (binding intent, not signatures):
     250 ms `LivePartialStore` poll + a `SessionDarwinObserver` on
     `SessionDarwinNames.partial`, running ONLY while capturing (never on the typing
     hot path). Kept tiny for the keyboard jetsam ceiling: no partial history.
-  - **Final-swap id contract (binding, WP10b ⇄ WP10c):** for a session capture the
-    host publishes the WP5 `PendingTranscript` with **`id == LivePartial.captureID`**.
-    When the keyboard renders the `isFinal` partial (i.e. live rendering was NOT
-    suppressed), it immediately `consume`s that id from the handoff store — the
-    live final IS the insertion, and the pending must not insert a second copy
-    after the session disarms. A suppressed (secure-field) capture leaves the
-    pending untouched for the WP5 path.
+  - **Final-swap id contract (binding, WP10b ⇄ WP10c):** the `isFinal` partial
+    carries **`pendingID` = the published `PendingTranscript.id`** for the capture
+    (`captureID` is the publisher's stream identity, NOT the pending's id — the
+    driver stamps `pendingID` when CaptureFlow reports `.published(id)`). When the
+    keyboard renders an unsuppressed final it immediately `consume`s `pendingID`
+    from the handoff store — the live final IS the insertion, and the pending must
+    not insert a second copy after the session disarms. A suppressed
+    (secure-field) capture leaves the pending untouched for the WP5 path.
 - **Arming UX (host):** a minimal full-screen "Session on — swipe back to
   your app" state (post-iOS-26.4 there is NO sanctioned auto-return; the
   manual swipe-back is what the market leader ships too). Settings gains the

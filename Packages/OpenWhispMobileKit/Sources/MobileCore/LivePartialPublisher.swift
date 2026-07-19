@@ -71,11 +71,16 @@ public struct LivePartialPublisher: Equatable, Sendable {
 
     /// Stamp the terminal CLEANED partial. NEVER throttled — the final happens once
     /// and dropping it would lose the dictation. No capture in progress → `nil`.
-    public mutating func final(_ cleaned: String, at date: Date) -> LivePartial? {
+    /// `pendingID` is the published `PendingTranscript.id` (§6.8 final-swap
+    /// contract): the keyboard consumes it after rendering the final.
+    public mutating func final(_ cleaned: String, pendingID: UUID?, at date: Date) -> LivePartial? {
         guard let captureID else { return nil }
         seq += 1
         lastText = cleaned
-        return LivePartial(captureID: captureID, seq: seq, text: cleaned, isFinal: true, updatedAt: date)
+        return LivePartial(
+            captureID: captureID, seq: seq, text: cleaned, isFinal: true,
+            updatedAt: date, pendingID: pendingID
+        )
     }
 
     /// End the current capture (clear the identity so stray partials after teardown

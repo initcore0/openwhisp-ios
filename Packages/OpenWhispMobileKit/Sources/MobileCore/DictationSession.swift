@@ -162,19 +162,27 @@ public struct LivePartial: Codable, Equatable, Sendable {
     public let text: String
     public let isFinal: Bool
     public let updatedAt: Date
+    /// Finals only: the `PendingTranscript.id` the host published for this capture.
+    /// The keyboard consumes THIS id after rendering an unsuppressed final (the
+    /// live final IS the insertion — §6.8 final-swap contract), so the pending
+    /// can't insert a second copy after the session disarms. `captureID` is the
+    /// publisher's stream identity and is NOT the pending's id.
+    public let pendingID: UUID?
 
     public init(
         captureID: UUID,
         seq: Int,
         text: String,
         isFinal: Bool,
-        updatedAt: Date
+        updatedAt: Date,
+        pendingID: UUID? = nil
     ) {
         self.captureID = captureID
         self.seq = seq
         self.text = text
         self.isFinal = isFinal
         self.updatedAt = updatedAt
+        self.pendingID = pendingID
     }
 }
 
