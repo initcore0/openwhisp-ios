@@ -98,14 +98,28 @@ struct DictateView: View {
     // MARK: - Pieces
 
     private func statusRow(_ model: CaptureViewModel) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(statusColor(model))
-                .frame(width: 10, height: 10)
-            Text(statusLabel(model))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("composer.status")
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor(model))
+                    .frame(width: 10, height: 10)
+                Text(statusLabel(model))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("composer.status")
+            }
+            // First-use honesty: "Preparing…" can include staging the model — a
+            // large download — and without saying so the app looks hung for minutes.
+            if model.phase == .preparing && model.isFirstUseDownload {
+                Text("Downloading the speech model for first use — a few minutes on "
+                     + "Wi-Fi, one time only. You can also download it up front in "
+                     + "Settings → Models & Storage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("composer.firstUseDownload")
+            }
         }
     }
 

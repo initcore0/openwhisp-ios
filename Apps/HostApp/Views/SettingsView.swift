@@ -230,6 +230,9 @@ struct ModelStorageView: View {
             }
             progress = nil
             refresh()
+            // Load the freshly staged model into memory now, so the user's first
+            // dictation doesn't pay the model-load wait on top of the download.
+            EngineCache.shared.warm(settings.engineSelection)
         } catch {
             errorText = error.localizedDescription
             progress = nil
@@ -238,6 +241,9 @@ struct ModelStorageView: View {
 
     private func delete(_ id: ModelID) {
         try? provisioning.delete(id)
+        // Cached engines may hold the deleted model in memory — drop them so the
+        // next capture re-resolves against what's actually on disk.
+        EngineCache.shared.invalidate()
         refresh()
     }
 

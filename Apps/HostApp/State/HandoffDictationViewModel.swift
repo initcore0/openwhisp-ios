@@ -163,12 +163,8 @@ final class HandoffDictationViewModel: ObservableObject {
         #if DEBUG
         if useFakeEngine { return ScriptedFakeEngine() }
         #endif
-        switch settings.engineFamily {
-        case .parakeet:
-            return ParakeetMobileEngine(variantID: settings.parakeetVariant)
-        case .whisperKit:
-            return WhisperKitMobileEngine(modelName: settings.whisperModel)
-        }
+        // Shared warm instance (see EngineCache) — never a fresh engine per capture.
+        return EngineCache.shared.engine(for: settings.engineSelection)
     }
 
     // MARK: - State mirroring

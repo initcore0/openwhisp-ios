@@ -1,4 +1,5 @@
 import SwiftUI
+import CaptureKit
 
 /// The host app entry point. This is the "engine" target: capture + transcription
 /// live here (WP3), handing finished text to the keyboard through the App Group.
@@ -76,6 +77,11 @@ struct OpenWhispApp: App {
                     // Wire the End Session intent (Live Activity button / Shortcuts) to
                     // the session controller (WP10b).
                     sessionController.install()
+                    // Pre-load the active model off the critical path so the first
+                    // mic tap of the session starts listening near-instantly. Safe:
+                    // warm() is a no-op (and never downloads) when the model isn't
+                    // staged yet.
+                    EngineCache.shared.warm(settings.engineSelection)
                     // Deterministic XCUITest entry: `-openwhisp-uitest-open-dictate`
                     // presents the dictation sheet on launch, exercising the SAME
                     // router path the `openwhisp://dictate` deep link takes, without

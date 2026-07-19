@@ -19,15 +19,14 @@ final class MicPanelView: UIView {
 
     init(style: Style) {
         super.init(frame: .zero)
+        // Fully OPAQUE and edge-to-edge: the panel now covers the whole keyboard
+        // (see showPanel), so any translucency/corner-radius would show key caps
+        // bleeding through and read as a glitch.
         backgroundColor = UIColor { tc in
             tc.userInterfaceStyle == .dark
-                ? UIColor(white: 0.18, alpha: 0.98)
-                : UIColor(white: 0.97, alpha: 0.98)
+                ? UIColor(white: 0.12, alpha: 1.0)
+                : UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1.0)
         }
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        layer.borderWidth = 0.5
-        layer.borderColor = UIColor.separator.cgColor
 
         let icon = UIImageView(image: UIImage(systemName: style == .fullAccess ? "lock.shield" : "mic.circle"))
         icon.tintColor = KeyboardTheme.accent
@@ -46,7 +45,7 @@ final class MicPanelView: UIView {
         switch style {
         case .fullAccess:
             titleLabel.text = "Turn on Full Access for dictation"
-            bodyLabel.text = "Full Access lets the keyboard read the finished transcript OpenWhisp made in the app. That's all it unlocks — no logging, no network except syncing to your own Mac. Typing works fully without it."
+            bodyLabel.text = "iOS Settings \u{2192} General \u{2192} Keyboard \u{2192} Keyboards \u{2192} OpenWhisp \u{2192} Allow Full Access. It lets the keyboard read the finished transcript OpenWhisp made in the app — no logging, no network except syncing to your own Mac. Typing works fully without it."
         case .captureUX:
             titleLabel.text = "Dictate in the OpenWhisp app"
             bodyLabel.text = "Dictation runs in the OpenWhisp app — open OpenWhisp (or use your Action button) and speak; the text lands here when you come back."
@@ -56,6 +55,11 @@ final class MicPanelView: UIView {
         closeButton.tintColor = .tertiaryLabel
         closeButton.addTarget(self, action: #selector(dismiss), for: .touchUpInside)
         closeButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // The panel covers the whole keyboard, so a tap ANYWHERE dismisses it and
+        // returns to typing — the close button must never be the only way out
+        // (typing never blocks on dictation surfaces, constraint C8).
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dismiss)))
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, bodyLabel])
         textStack.axis = .vertical
@@ -67,11 +71,13 @@ final class MicPanelView: UIView {
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
+        // Top-aligned content in a full-cover panel: pinning the bottom too would
+        // stretch the text block across the whole keyboard height.
         NSLayoutConstraint.activate([
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            row.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             icon.widthAnchor.constraint(equalToConstant: 26),
         ])
     }

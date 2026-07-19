@@ -613,10 +613,14 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         panel.translatesAutoresizingMaskIntoConstraints = false
         panel.onDismiss = { [weak self] in self?.dismissPanel() }
         view.addSubview(panel)
+        // Cover the WHOLE keyboard. Top-pinning only let the panel float over the
+        // upper key rows at its intrinsic height — keys poked out beneath it and
+        // the whole thing read as a rendering glitch, not a message.
         NSLayoutConstraint.activate([
-            panel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            panel.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panel.topAnchor.constraint(equalTo: view.topAnchor),
+            panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         micPanel = panel
     }

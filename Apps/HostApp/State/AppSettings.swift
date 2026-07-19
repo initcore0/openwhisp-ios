@@ -95,6 +95,15 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// The `EngineCache` selection for the active engine — the one key every
+    /// capture surface uses so they all share the same warm engine instance.
+    var engineSelection: EngineSelection {
+        switch engineFamily {
+        case .parakeet: return .parakeet(variantID: parakeetVariant)
+        case .whisperKit: return .whisperKit(model: whisperModel)
+        }
+    }
+
     /// The available language-hint choices for the picker. "auto" plus the fixture
     /// languages the product cares about.
     static let languageChoices: [(code: String, label: String)] = [
