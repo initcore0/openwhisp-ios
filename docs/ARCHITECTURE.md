@@ -571,6 +571,14 @@ Driver notes (binding intent, not signatures):
   `isSecureField`; the final falls back to the WP5 pending-transcript path if
   live rendering was suppressed. With Full Access off, session features are
   invisible (D8's explainer unchanged) [C2, C8].
+  - **Dictation board (the mic key's surface):** the mic key raises
+    `DictationBoardView` — one big record button + status line covering the
+    keys, replacing the old floating panels. With a session armed, the SAME
+    tap that raises the board posts `startCapture` (one tap from keys to
+    live dictation); tapping the big button stops and the final swap lands,
+    auto-returning to the keys. Setup states (`needsSession` /
+    `needsFullAccess`) render as full-board instructions. The ABC key returns
+    to typing, which never gates on any of this [C8 / 4.4.1].
   - **Status transport (WP10c):** the keyboard reads the host's `SessionStatus`
     through `SessionStatusReading` — file conformer `AppGroupSessionStatusReader`
     reads `session/status.json` (a JSON-encoded `SessionStatus`) in the same
