@@ -427,6 +427,36 @@ values — a private keyboard in a category built on distrust.
 
 ---
 
+## Addendum (2026-07-19): how competitors ship keyboard dictation — the session model
+
+Competitive research behind D11/D12 and WP10. Key findings:
+
+- **[C1] holds — nobody records in the keyboard.** Wispr Flow (the category
+  leader) confirms the constraint: their keyboard is a remote control; the mic
+  runs in the host app.
+- **The trick is a SESSION, not a per-dictation hop.** "Flow Sessions": tapping
+  the keyboard mic with no session first bounces through the host app, which
+  activates an audio session that then STAYS ALIVE IN THE BACKGROUND for a
+  user-configurable window (5 min / 15 min / 1 h / never). Every dictation
+  inside the window starts instantly from the keyboard, with the host recording
+  in the background and the keyboard inserting text live.
+- **Auto-return is dead.** Pre-iOS-26.4 Wispr auto-bounced users back to their
+  previous app; Apple broke that in 26.4 and even they now require a manual
+  swipe-back after arming (their help doc "Adapting to iOS 26.4"). A one-hop
+  manual-return arming flow is therefore market parity, not a gap.
+- **Live partials are the perceived-quality bar**: text appearing at the caret
+  while speaking, final cleanup swapped in at stop.
+
+Sources: Wispr Flow Help Center — *Set up the Flow keyboard on iPhone*,
+*Adapting to iOS 26.4*; 9to5Mac 2025-06-30 *Wispr Flow is an AI iPhone
+keyboard*; Apple *Custom Keyboard* guide + Forums thread/742601 (mic
+prohibition re-confirmed); Itsuki (Level Up Coding, 2026-05) *A Better(?) Way
+to Make A Dictation App* (App-Intent-only architecture; confirms
+foreground-activated audio sessions continue in background under the `audio`
+mode, and Live Activity keep-alive practice).
+
+---
+
 ## Sources (fact-checked, 2026-07-08)
 
 - **[C1]** No mic in keyboard extensions, even with Full Access → host-app engine:
