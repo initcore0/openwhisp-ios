@@ -166,7 +166,7 @@ public final class IOSModelProvisioning: ModelProvisioning {
         return total
     }
 
-    nonisolated static func isParakeet(_ model: ModelID) -> Bool {
+    public nonisolated static func isParakeet(_ model: ModelID) -> Bool {
         ParakeetCatalog.variants.contains { $0.id == model.rawValue }
             || model.rawValue.hasPrefix("parakeet-")
             || model.rawValue.hasPrefix("nemotron-")

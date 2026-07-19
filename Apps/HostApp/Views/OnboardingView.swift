@@ -129,12 +129,10 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
 
             LabeledContent("Engine", value: settings.engineFamily.title)
-            LabeledContent("Model", value: settings.activeModelID.rawValue)
+            LabeledContent("Model", value: ModelDisplay.name(for: settings.activeModelID))
 
             if let p = downloadProgress {
-                ProgressView(value: p) {
-                    Text("Downloading… \(Int(p * 100))%")
-                }
+                ModelDownloadRow(model: settings.activeModelID, fraction: p)
             }
             if let e = downloadError {
                 Text(e).font(.footnote).foregroundStyle(.red)
