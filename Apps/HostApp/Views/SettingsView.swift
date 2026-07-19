@@ -13,6 +13,7 @@ struct SettingsView: View {
             Form {
                 engineSection
                 languageSection
+                sessionSection
 
                 Section {
                     NavigationLink {
@@ -99,6 +100,34 @@ struct SettingsView: View {
                     Text(hint).font(.caption).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// Dictation Sessions (WP10b): the idle-timeout picker + the mic-privacy copy.
+    private var sessionSection: some View {
+        Section {
+            Picker("Idle timeout", selection: $settings.sessionIdleTimeout) {
+                ForEach(DictationSessionConfig.IdleTimeout.allCases, id: \.self) { t in
+                    Text(Self.timeoutLabel(t)).tag(t)
+                }
+            }
+            .accessibilityIdentifier("settings.sessionTimeout")
+        } header: {
+            Text("Dictation Sessions")
+        } footer: {
+            Text("Tap the keyboard's mic key to arm a session once, then dictate "
+                 + "instantly from any app without switching back. An idle session "
+                 + "ends itself after this long. The mic stays available while a "
+                 + "session is on \u{2014} iOS shows the orange indicator the whole time.")
+        }
+    }
+
+    private static func timeoutLabel(_ t: DictationSessionConfig.IdleTimeout) -> String {
+        switch t {
+        case .fiveMinutes: return "5 minutes"
+        case .fifteenMinutes: return "15 minutes"
+        case .oneHour: return "1 hour"
+        case .never: return "Never (end manually)"
         }
     }
 
@@ -296,6 +325,11 @@ struct PrivacyView: View {
             }
             Section("Secure fields") {
                 bullet("The keyboard refuses to insert into password fields, and can't dictate there at all.")
+            }
+            Section("Dictation Sessions") {
+                bullet("While a session is on, the mic stays available so you can dictate "
+                       + "instantly \u{2014} iOS shows the orange indicator the whole time. End "
+                       + "the session anytime, and it ends itself after the idle timeout.")
             }
         }
         .navigationTitle("Privacy")

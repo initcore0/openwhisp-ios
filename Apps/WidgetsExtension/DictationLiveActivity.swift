@@ -37,7 +37,9 @@ struct DictationLiveActivity: Widget {
                 .font(.caption)
             }
             DynamicIslandExpandedRegion(.trailing) {
-                if !state.isTerminal {
+                if state.isSessionArmed {
+                    endSessionButton.labelStyle(.iconOnly)
+                } else if !state.isTerminal {
                     stopButton.labelStyle(.iconOnly)
                 }
             }
@@ -68,6 +70,13 @@ struct DictationLiveActivity: Widget {
         .tint(.red)
     }
 
+    private var endSessionButton: some View {
+        Button(intent: EndSessionIntent()) {
+            Label("End Session", systemImage: "xmark.circle.fill")
+        }
+        .tint(.red)
+    }
+
     private func tint(_ state: DictationActivityState) -> Color {
         switch state.phase {
         case .starting: return .secondary
@@ -75,6 +84,7 @@ struct DictationLiveActivity: Widget {
         case .transcribing: return .blue
         case .inserted: return .green
         case .failed: return .red
+        case .armed: return .accentColor
         }
     }
 }
@@ -97,6 +107,10 @@ private struct LockScreenView: View {
                 if state.phase == .listening {
                     LevelBar(level: state.level, active: true)
                         .frame(height: 10)
+                } else if state.phase == .armed {
+                    Text("Dictate from your keyboard's mic key.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 } else if state.phase == .starting || state.phase == .transcribing {
                     Text("On-device — nothing leaves your phone.")
                         .font(.caption2)
@@ -104,7 +118,16 @@ private struct LockScreenView: View {
                 }
             }
             Spacer()
-            if !state.isTerminal {
+            if state.isSessionArmed {
+                Button(intent: EndSessionIntent()) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .accessibilityLabel("End Session")
+            } else if !state.isTerminal {
                 Button(intent: StopDictationIntent()) {
                     Image(systemName: "stop.fill")
                         .font(.title3)
@@ -125,6 +148,7 @@ private struct LockScreenView: View {
         case .transcribing: return .blue
         case .inserted: return .green
         case .failed: return .red
+        case .armed: return .accentColor
         }
     }
 }

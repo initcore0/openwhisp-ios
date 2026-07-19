@@ -22,6 +22,12 @@ struct RootView: View {
         .sheet(item: $router.pending) { pending in
             DictationSheet(trigger: pending.trigger)
         }
+        // The Dictation-Session arming screen (WP10b) is a full-screen state — it owns
+        // the whole screen so "Session on \u{2014} swipe back to your app" is the clear,
+        // singular instruction. Presented by `openwhisp://session/arm`.
+        .fullScreenCover(isPresented: $router.presentingSessionArm) {
+            SessionArmingView()
+        }
     }
 }
 

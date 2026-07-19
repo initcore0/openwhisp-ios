@@ -21,6 +21,11 @@ public enum DictationActivityPhase: String, Codable, Hashable, Sendable {
     /// activity shows a brief "Inserted" confirmation, then ends.
     case inserted
     case failed
+    /// A Dictation Session is ARMED but idle (WP10, D11): the mic session is held in
+    /// the background and the keyboard mic key starts capture instantly. Distinct
+    /// from `.starting` — this is a persistent state, not a capture warm-up — and
+    /// carries the End Session button rather than a Stop button.
+    case armed
 }
 
 /// The Live Activity's dynamic content: the phase plus the live input level (for
@@ -60,11 +65,29 @@ public struct DictationActivityState: Codable, Hashable, Sendable {
         }
     }
 
+    /// Map a cross-process `SessionStatus.Phase` (WP10b) to the activity's content
+    /// state, for the SESSION Live Activity (armed window + live capture). `.off` maps
+    /// to `.inserted` only as a terminal placeholder — the driver ends the activity on
+    /// `.off` rather than pushing this — so callers should end, not update, for off.
+    public static func fromSession(_ phase: SessionStatus.Phase) -> DictationActivityState {
+        switch phase {
+        case .off: return DictationActivityState(phase: .inserted)
+        case .armed: return DictationActivityState(phase: .armed)
+        case .capturing: return DictationActivityState(phase: .listening)
+        case .transcribing: return DictationActivityState(phase: .transcribing)
+        }
+    }
+
     /// Whether this state is terminal (the activity should end shortly after
     /// showing it). Both success (`.inserted`) and `.failed` are terminal.
     public var isTerminal: Bool {
         phase == .inserted || phase == .failed
     }
+
+    /// Whether this is a persistent Dictation-Session state (armed window) whose
+    /// activity action is "End Session", not "Stop". `.armed` is the idle held
+    /// session; a capturing/transcribing session still shows Stop for the capture.
+    public var isSessionArmed: Bool { phase == .armed }
 
     /// A short human label for the compact/expanded presentations.
     public var label: String {
@@ -74,6 +97,7 @@ public struct DictationActivityState: Codable, Hashable, Sendable {
         case .transcribing: return "Transcribing\u{2026}"
         case .inserted: return "Inserted"
         case .failed: return "Dictation failed"
+        case .armed: return "Session on"
         }
     }
 
@@ -85,6 +109,7 @@ public struct DictationActivityState: Codable, Hashable, Sendable {
         case .transcribing: return "ellipsis"
         case .inserted: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
+        case .armed: return "mic.circle.fill"
         }
     }
 }

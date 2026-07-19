@@ -91,6 +91,25 @@ struct StopDictationIntent: LiveActivityIntent {
     }
 }
 
+/// Ends the armed Dictation Session (WP10, D11/D12). Fired by the session Live
+/// Activity's "End Session" button. Like `StopDictationIntent` it MUST be a
+/// `LiveActivityIntent` so `perform()` runs in the APP's process, where the bridge's
+/// `endSessionHandler` reaches the live `SessionController` — a plain `AppIntent`
+/// would run in the widget process where no handler is installed and end nothing.
+@available(iOS 18.0, *)
+struct EndSessionIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "End OpenWhisp Session"
+    static var description = IntentDescription("End the current dictation session and release the microphone.")
+
+    static var openAppWhenRun: Bool = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        await IntentDictationBridge.shared.endSession()
+        return .result()
+    }
+}
+
 /// The seam between the (process-agnostic) intents and the host app's capture
 /// pipeline. The host app installs a real implementation on launch; in any process
 /// where no implementation is installed (the widget extension), the calls are safe
@@ -99,6 +118,15 @@ struct StopDictationIntent: LiveActivityIntent {
 final class IntentDictationBridge {
     static let shared = IntentDictationBridge()
     private init() {}
+
+    /// Installed by the host app; ends the armed Dictation Session (WP10b). The
+    /// session Live Activity's End Session button routes here through
+    /// `EndSessionIntent`. A no-op where unset (widget process).
+    var endSessionHandler: (() async -> Void)?
+
+    func endSession() async {
+        await endSessionHandler?()
+    }
 
     /// Installed by the host app on launch. Returns true iff capture actually began
     /// in this process.
