@@ -57,6 +57,7 @@ struct DictateView: View {
 
             Spacer()
             recordButton(model)
+            keyboardSessionButton(model)
             dictateForAnotherAppButton(model)
         }
         .padding(.top)
@@ -161,6 +162,24 @@ struct DictateView: View {
         .padding(.bottom, 24)
         .accessibilityLabel(model.isBusy ? "Stop" : "Record")
         .accessibilityIdentifier("composer.record")
+    }
+
+    /// Arms a DICTATION SESSION (WP10, D11): the app holds the mic open in the
+    /// background so the keyboard's record button starts/stops listening
+    /// instantly in any app, for the whole session window. This is the primary
+    /// in-app entry — the arming screen was previously reachable only via the
+    /// `openwhisp://session/arm` deep link, which nobody can discover.
+    @ViewBuilder
+    private func keyboardSessionButton(_ model: CaptureViewModel) -> some View {
+        Button {
+            router.presentingSessionArm = true
+        } label: {
+            Label("Start keyboard dictation session", systemImage: "mic.badge.plus")
+                .font(.subheadline)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isBusy)
+        .accessibilityIdentifier("composer.startSession")
     }
 
     /// Opens the compact dictation SHEET that publishes to the App Group so the

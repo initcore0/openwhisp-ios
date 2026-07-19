@@ -7,6 +7,7 @@ import OpenWhispCore
 /// language hint, privacy screen, and the Developer section → Engine Lab.
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var router: DictationRouter
 
     var body: some View {
         NavigationStack {
@@ -103,9 +104,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Dictation Sessions (WP10b): the idle-timeout picker + the mic-privacy copy.
+    /// Dictation Sessions (WP10b): start button + the idle-timeout picker + the
+    /// mic-privacy copy.
     private var sessionSection: some View {
         Section {
+            Button {
+                router.presentingSessionArm = true
+            } label: {
+                Label("Start a session now", systemImage: "mic.badge.plus")
+            }
+            .accessibilityIdentifier("settings.startSession")
             Picker("Idle timeout", selection: $settings.sessionIdleTimeout) {
                 ForEach(DictationSessionConfig.IdleTimeout.allCases, id: \.self) { t in
                     Text(Self.timeoutLabel(t)).tag(t)
@@ -115,10 +123,12 @@ struct SettingsView: View {
         } header: {
             Text("Dictation Sessions")
         } footer: {
-            Text("Tap the keyboard's mic key to arm a session once, then dictate "
-                 + "instantly from any app without switching back. An idle session "
-                 + "ends itself after this long. The mic stays available while a "
-                 + "session is on \u{2014} iOS shows the orange indicator the whole time.")
+            Text("Start a session here (or from the Dictate tab), then dictate "
+                 + "instantly from any app with the keyboard's record button — no "
+                 + "app switching. An idle session ends itself after the timeout; "
+                 + "pick \u{201C}Never\u{201D} for an all-day session. The mic stays available "
+                 + "while a session is on \u{2014} iOS shows the orange indicator the "
+                 + "whole time.")
         }
     }
 
