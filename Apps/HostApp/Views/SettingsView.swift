@@ -133,14 +133,16 @@ struct ModelStorageView: View {
         Form {
             Section("Active model") {
                 LabeledContent("Engine", value: settings.engineFamily.title)
-                LabeledContent("Model", value: settings.activeModelID.rawValue)
-                if !isActiveStaged {
-                    if let p = progress {
-                        ProgressView(value: p) { Text("Downloading… \(Int(p * 100))%") }
-                    } else {
-                        Button("Download active model") {
-                            Task { await download(settings.activeModelID) }
-                        }
+                LabeledContent("Model", value: ModelDisplay.name(for: settings.activeModelID))
+                if isActiveStaged {
+                    Label("Downloaded and ready", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                } else if let p = progress {
+                    ModelDownloadRow(model: settings.activeModelID, fraction: p)
+                } else {
+                    Button("Download active model") {
+                        Task { await download(settings.activeModelID) }
                     }
                 }
                 if let e = errorText {
@@ -157,7 +159,7 @@ struct ModelStorageView: View {
                     ForEach(staged, id: \.id.rawValue) { model in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(model.id.rawValue).font(.subheadline)
+                                Text(ModelDisplay.name(for: model.id)).font(.subheadline)
                                 Text(Self.sizeString(model.sizeBytes))
                                     .font(.caption).foregroundStyle(.secondary)
                             }

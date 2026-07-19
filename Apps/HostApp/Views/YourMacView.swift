@@ -30,6 +30,7 @@ struct YourMacView: View {
                 journalSection
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Your Mac")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("yourMac.root")

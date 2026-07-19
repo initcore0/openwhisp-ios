@@ -11,6 +11,7 @@ struct DictateView: View {
     @EnvironmentObject private var router: DictationRouter
     @StateObject private var vm: CaptureViewModelHolder = CaptureViewModelHolder()
     @State private var showCopied = false
+    @FocusState private var editorFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -73,6 +74,14 @@ struct DictateView: View {
                 .disabled(model.finalText.isEmpty)
                 .accessibilityIdentifier("composer.share")
             }
+
+            // The editor is inside a plain VStack (no scroll view), so without an
+            // explicit affordance the system keyboard has no way to be dismissed.
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { editorFocused = false }
+                    .accessibilityIdentifier("composer.keyboardDone")
+            }
         }
         .overlay(alignment: .bottom) {
             if showCopied {
@@ -105,6 +114,7 @@ struct DictateView: View {
             get: { model.finalText },
             set: { model.finalText = $0 }
         ))
+        .focused($editorFocused)
         .font(.body)
         .frame(minHeight: 160)
         .overlay(alignment: .topLeading) {
@@ -121,6 +131,7 @@ struct DictateView: View {
 
     private func recordButton(_ model: CaptureViewModel) -> some View {
         Button {
+            editorFocused = false
             model.toggle()
         } label: {
             ZStack {

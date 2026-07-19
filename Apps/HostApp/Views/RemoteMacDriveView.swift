@@ -13,6 +13,9 @@ import SyncKit
 struct RemoteMacDriveView: View {
     let peer: PeerIdentity
     @EnvironmentObject private var remote: RemoteMacCoordinator
+    @FocusState private var refineFocus: RefineField?
+
+    private enum RefineField { case text, instruction }
 
     var body: some View {
         Group {
@@ -97,10 +100,24 @@ struct RemoteMacDriveView: View {
         Section {
             TextField("Text to refine", text: $refineText, axis: .vertical)
                 .lineLimit(1...4)
+                .focused($refineFocus, equals: .text)
+                .toolbar {
+                    // A multiline TextField has no return-to-dismiss; give the
+                    // keyboard an explicit Done so it can always be closed.
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") { refineFocus = nil }
+                            .accessibilityIdentifier("remoteDrive.keyboardDone")
+                    }
+                }
                 .accessibilityIdentifier("remoteDrive.refineText")
             TextField("Instruction (e.g. make it formal)", text: $refineInstruction)
+                .focused($refineFocus, equals: .instruction)
+                .submitLabel(.done)
+                .onSubmit { refineFocus = nil }
                 .accessibilityIdentifier("remoteDrive.refineInstruction")
             Button {
+                refineFocus = nil
                 remote.refine(peer, text: refineText, instruction: refineInstruction)
             } label: {
                 if remote.isRefining {
