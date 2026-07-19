@@ -55,8 +55,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     /// metrics and update it on rotation / size-class change.
     private var heightConstraint: NSLayoutConstraint?
 
-    /// The currently-shown mic panel (explainer / capture-UX), if any.
-    private var micPanel: MicPanelView?
+    /// The DICTATION BOARD (one big record button covering the keys), if shown.
+    /// Raised by the mic key; dismissed by its ABC key or automatically after a
+    /// final insert lands.
+    private var board: DictationBoardView?
 
     /// A timer that polls the shared capture state while the keyboard is visible,
     /// so the listening indicator animates and a missed Darwin ping is caught.
@@ -397,38 +399,49 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             now: now
         )
 
+        // A mic tap raises the DICTATION BOARD (the big-button surface); when a
+        // session is armed, the same tap starts listening immediately — one tap
+        // from keys to live dictation, per the product ask.
+        if trigger == .micTap, board == nil {
+            showBoard()
+        }
+
         switch behavior {
         case .explainFullAccess:
             stopLivePartialLoop()
             renderMicKeyState(.explainFullAccess)
-            if trigger == .micTap { showPanel(.fullAccess) }
+            board?.render(.needsFullAccess)
         case .startCapture:
-            // Armed & idle: the key latches (accent) to invite a tap; a tap posts
-            // startCapture. No live rendering yet.
+            // Armed & idle: a tap starts capture instantly (via the board raise
+            // above or a tap on the board's big button).
             stopLivePartialLoop()
             keyboardView?.styleMicKey(latched: true, accent: true)
             stopMicPulse()
             if trigger == .micTap {
-                dismissPanel()
                 postSessionCommand(.startCapture, now: now)
+                board?.render(.listening)   // optimistic; the poll confirms
+            } else {
+                board?.render(.ready)
             }
         case .stopCapture:
-            // Capturing: pulse the key and run the live-partial loop. A tap posts
-            // stopCapture (the host finalizes; the final swaps in via the loop).
+            // Capturing: pulse + live-partial loop. A tap posts stopCapture (the
+            // host finalizes; the final swaps in via the loop).
             renderMicKeyState(.showCapturing)  // latched + pulse
             startLivePartialLoop()
             if trigger == .micTap {
-                dismissPanel()
                 postSessionCommand(.stopCapture, now: now)
+                board?.render(.transcribing)
+            } else {
+                board?.render(.listening)
             }
         case .showTranscribing:
-            // The final is wrapping up — keep the pulse, keep draining partials so
-            // the final swap lands, but a tap starts nothing new.
+            // The final is wrapping up — keep draining partials so the final swap
+            // lands, but a tap starts nothing new.
             renderMicKeyState(.showCapturing)
             startLivePartialLoop()
-            if trigger == .micTap { dismissPanel() }
+            board?.render(.transcribing)
         case .startSessionHop(let floor):
-            // No live session → exactly today's floor flow, unchanged.
+            // No live session → the floor flow decides; the board mirrors it.
             stopLivePartialLoop()
             actOnFloorBehavior(floor, trigger: trigger)
         }
@@ -459,24 +472,33 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         // transcript is ready to drop).
         renderMicKeyState(behavior)
 
+        // A mic tap raises the board here too (App-Group-less / no-session paths),
+        // so the mic key always lands on ONE consistent surface.
+        if trigger == .micTap, board == nil {
+            showBoard()
+        }
+
         switch behavior {
         case .explainFullAccess:
-            if trigger == .micTap { showPanel(.fullAccess) }
+            board?.render(.needsFullAccess)
         case .showCaptureUX:
+            board?.render(.needsSession)
             if trigger == .micTap {
-                showPanel(.captureUX)
                 #if DEBUG
                 if enableOpenURLSpikeProbe { openHostViaResponderChainSpike() }
                 #endif
             }
         case .showCapturing:
             // Nothing to insert yet — the poll animates the indicator.
-            if trigger == .micTap { dismissPanel() }
+            board?.render(.transcribing)
         case .insertPending(let id):
             // Auto-insert on return-trip triggers and on an explicit tap; a poll
             // tick must not (it would double-insert as state settles).
             if trigger.performsAutoInsert {
                 performInsert(id: id)
+                hideBoard()   // the text landed — back to the keys
+            } else {
+                board?.render(.readyToInsert)
             }
         }
         lastMicBehavior = behavior
@@ -535,6 +557,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
                 if let pendingID = partial.pendingID {
                     _ = try? handoff?.store.consume(id: pendingID, now: Date())
                 }
+                // The dictation landed — drop back to the keys so the user can
+                // keep typing (the board's job for this capture is done).
+                hideBoard()
             }
         }
     }
@@ -605,29 +630,44 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         stopMicPulse()
     }
 
-    // MARK: - Panels
+    // MARK: - Dictation board
 
-    private func showPanel(_ style: MicPanelView.Style) {
+    /// Raise the board over the keys and render its current state. The caller's
+    /// behavior switch immediately renders the precise state; `.ready` is just
+    /// the placeholder for the first frame.
+    private func showBoard() {
+        guard board == nil else { return }
         dismissPanel()
-        let panel = MicPanelView(style: style)
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.onDismiss = { [weak self] in self?.dismissPanel() }
-        view.addSubview(panel)
-        // Cover the WHOLE keyboard. Top-pinning only let the panel float over the
-        // upper key rows at its intrinsic height — keys poked out beneath it and
-        // the whole thing read as a rendering glitch, not a message.
+        let b = DictationBoardView()
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.onMicTap = { [weak self] in
+            // The big button is the mic key: re-resolve with a mic-tap trigger so
+            // start/stop/insert all route through the one tested pipeline.
+            self?.refreshMicKey(trigger: .micTap)
+        }
+        b.onShowKeys = { [weak self] in self?.hideBoard() }
+        b.render(.ready)
+        view.addSubview(b)
         NSLayoutConstraint.activate([
-            panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            panel.topAnchor.constraint(equalTo: view.topAnchor),
-            panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            b.topAnchor.constraint(equalTo: view.topAnchor),
+            b.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            b.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            b.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        micPanel = panel
+        board = b
     }
 
+    private func hideBoard() {
+        board?.removeFromSuperview()
+        board = nil
+    }
+
+    // MARK: - Panels
+
+    /// Historical name, kept at the call sites: any typing/return-trip event
+    /// tears down the mic surface — which is now the dictation board.
     private func dismissPanel() {
-        micPanel?.removeFromSuperview()
-        micPanel = nil
+        hideBoard()
     }
 
     // MARK: - R0b openURL spike (DEBUG only)
