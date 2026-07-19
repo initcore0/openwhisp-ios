@@ -96,6 +96,53 @@ public struct AppGroupLivePartialStore: LivePartialStore {
     }
 }
 
+// MARK: - SessionDarwinObserver
+
+/// Payload-free cross-process wake-up observer for a single Darwin name (mirrors
+/// `DarwinHandoffNotifier`'s pattern, but generic over the name so the keyboard can
+/// listen on both `SessionDarwinNames.partial` and `.status`). Best-effort by
+/// design — the store read (poll) is the reliability floor. Post-side lives on the
+/// host; the keyboard only observes.
+public final class SessionDarwinObserver: @unchecked Sendable {
+
+    public var onNotify: (() -> Void)?
+    private let name: String
+
+    public init(name: String) {
+        self.name = name
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(
+            center,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let me = Unmanaged<SessionDarwinObserver>.fromOpaque(observer).takeUnretainedValue()
+                me.onNotify?()
+            },
+            name as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    deinit {
+        CFNotificationCenterRemoveEveryObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+    }
+
+    /// Post the name (host side / tests). The keyboard never calls this.
+    public func post() {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name as CFString),
+            nil, nil, true
+        )
+    }
+}
+
 // MARK: - Shared file helpers
 
 /// The rename + Data Protection helpers, shared by the session stores. Identical
@@ -136,6 +183,10 @@ enum SessionFileIO {
 public struct SessionEnvironment {
     public let commandMailbox: AppGroupSessionCommandMailbox
     public let partialStore: AppGroupLivePartialStore
+    /// Reader-only view of the host's mirrored `SessionStatus` (WP10c). Reads
+    /// `session/status.json` in the same `session/` directory; the host (WP10b)
+    /// owns writes.
+    public let statusReader: AppGroupSessionStatusReader
 
     /// nil when the App Group container is unavailable (missing entitlement) —
     /// callers degrade gracefully (session features stay invisible in the keyboard).
@@ -144,14 +195,21 @@ public struct SessionEnvironment {
         let dir = container.appendingPathComponent("session", isDirectory: true)
         guard let commandMailbox = try? AppGroupSessionCommandMailbox(directory: dir),
               let partialStore = try? AppGroupLivePartialStore(directory: dir) else { return nil }
-        return SessionEnvironment(commandMailbox: commandMailbox, partialStore: partialStore)
+        let statusReader = AppGroupSessionStatusReader(directory: dir)
+        return SessionEnvironment(
+            commandMailbox: commandMailbox,
+            partialStore: partialStore,
+            statusReader: statusReader
+        )
     }
 
     public init(
         commandMailbox: AppGroupSessionCommandMailbox,
-        partialStore: AppGroupLivePartialStore
+        partialStore: AppGroupLivePartialStore,
+        statusReader: AppGroupSessionStatusReader
     ) {
         self.commandMailbox = commandMailbox
         self.partialStore = partialStore
+        self.statusReader = statusReader
     }
 }

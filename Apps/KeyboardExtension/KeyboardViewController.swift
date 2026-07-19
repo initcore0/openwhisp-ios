@@ -28,6 +28,25 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     /// entitlement is unavailable — the mic key then shows the explainer.
     private let handoff = HandoffEnvironment.live()
 
+    /// The live SESSION pieces (App Group): command mailbox (keyboard→host), the
+    /// live-partial store (host→keyboard), and the status reader. nil when the App
+    /// Group is unavailable — session features then stay invisible and the mic key
+    /// is exactly today's floor flow (WP10c, §6.8, [C2][C8]).
+    private let session = SessionEnvironment.live()
+
+    /// Pure model that turns each incoming `LivePartial` into a minimal proxy edit,
+    /// tracking only the last-rendered string per capture (§6.8, D12).
+    private var partialRender = LivePartialRenderModel()
+
+    /// Darwin wake-ups for the session partial/status streams (best-effort; the
+    /// polls are the reliability floor). Retained so the observers stay alive.
+    private var partialObserver: SessionDarwinObserver?
+    private var statusObserver: SessionDarwinObserver?
+
+    /// The 250 ms partial poll, running ONLY while the session is capturing and we
+    /// are actively rendering live (never on the typing hot path).
+    private var partialPollTimer: Timer?
+
     private var keyboardView: KeyboardView!
 
     /// Explicit height for the input host. A `UIInputViewController` has no
@@ -84,6 +103,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         super.viewWillDisappear(animated)
         isVisible = false
         stopCaptureStatePoll()
+        stopLivePartialLoop()
     }
 
     override func viewWillLayoutSubviews() {
@@ -166,6 +186,31 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
                 self.refreshConfigCache()
                 self.refreshMicKey(trigger: .darwinPing)
             }
+        }
+
+        // Session status changes → re-resolve the mic key promptly (arm/disarm,
+        // capture start/stop). The poll catches missed pings.
+        if session != nil {
+            let statusObs = SessionDarwinObserver(name: SessionDarwinNames.status)
+            statusObs.onNotify = { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    guard self.isVisible else { return }
+                    self.refreshMicKey(trigger: .darwinPing)
+                }
+            }
+            statusObserver = statusObs
+
+            // Live partials → render immediately (the 250 ms poll is the floor).
+            let partialObs = SessionDarwinObserver(name: SessionDarwinNames.partial)
+            partialObs.onNotify = { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    guard self.isVisible else { return }
+                    self.pumpLivePartial()
+                }
+            }
+            partialObserver = partialObs
         }
     }
 
@@ -327,9 +372,71 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         refreshMicKey(trigger: .micTap)
     }
 
-    /// Re-resolve the mic key against the live handoff state and act per the
-    /// trigger (auto-insert on return-trip triggers, state-only on a poll).
+    /// Re-resolve the mic key and act per the trigger. When a session env exists
+    /// (App Group available), resolve the SESSION-aware behavior (§6.8, D11): an
+    /// armed session turns the key into a live capture remote; no live session
+    /// falls back to EXACTLY today's floor flow. Without the App Group, session
+    /// features are invisible and we go straight to the floor flow ([C2][C8]).
     private func refreshMicKey(trigger: MicKeyRefreshTrigger) {
+        guard let session else {
+            refreshFloorMicKey(trigger: trigger)
+            return
+        }
+
+        let fullAccess = hasFullAccess
+        let now = Date()
+        let status = session.statusReader.read(now: now)
+        let captureState = handoff?.sharedState.readCaptureState() ?? .idle
+        let pending: PendingTranscript? = (try? handoff?.store.peek()).flatMap { $0 }
+
+        let behavior = MicKeyResolver.resolveSession(
+            fullAccess: fullAccess,
+            sessionStatus: status,
+            captureState: captureState,
+            pending: pending,
+            now: now
+        )
+
+        switch behavior {
+        case .explainFullAccess:
+            stopLivePartialLoop()
+            renderMicKeyState(.explainFullAccess)
+            if trigger == .micTap { showPanel(.fullAccess) }
+        case .startCapture:
+            // Armed & idle: the key latches (accent) to invite a tap; a tap posts
+            // startCapture. No live rendering yet.
+            stopLivePartialLoop()
+            keyboardView?.styleMicKey(latched: true, accent: true)
+            stopMicPulse()
+            if trigger == .micTap {
+                dismissPanel()
+                postSessionCommand(.startCapture, now: now)
+            }
+        case .stopCapture:
+            // Capturing: pulse the key and run the live-partial loop. A tap posts
+            // stopCapture (the host finalizes; the final swaps in via the loop).
+            renderMicKeyState(.showCapturing)  // latched + pulse
+            startLivePartialLoop()
+            if trigger == .micTap {
+                dismissPanel()
+                postSessionCommand(.stopCapture, now: now)
+            }
+        case .showTranscribing:
+            // The final is wrapping up — keep the pulse, keep draining partials so
+            // the final swap lands, but a tap starts nothing new.
+            renderMicKeyState(.showCapturing)
+            startLivePartialLoop()
+            if trigger == .micTap { dismissPanel() }
+        case .startSessionHop(let floor):
+            // No live session → exactly today's floor flow, unchanged.
+            stopLivePartialLoop()
+            actOnFloorBehavior(floor, trigger: trigger)
+        }
+    }
+
+    /// The pre-session mic-key path, preserved verbatim: used when the App Group is
+    /// unavailable (no session env at all).
+    private func refreshFloorMicKey(trigger: MicKeyRefreshTrigger) {
         let fullAccess = hasFullAccess
         let captureState = handoff?.sharedState.readCaptureState() ?? .idle
         // `try?` on an optional chain gives `PendingTranscript??`; flatten it.
@@ -341,7 +448,13 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             pending: pending,
             now: Date()
         )
+        actOnFloorBehavior(behavior, trigger: trigger)
+    }
 
+    /// Render + act on a floor-flow `MicKeyBehavior` (shared by the no-App-Group
+    /// path and the `.startSessionHop` case). Identical semantics to the original
+    /// `refreshMicKey`.
+    private func actOnFloorBehavior(_ behavior: MicKeyBehavior, trigger: MicKeyRefreshTrigger) {
         // Update the mic-key visual (listening pulse when capturing, accent when a
         // transcript is ready to drop).
         renderMicKeyState(behavior)
@@ -367,6 +480,61 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             }
         }
         lastMicBehavior = behavior
+    }
+
+    // MARK: - Session commands + live-partial loop (§6.8, D12)
+
+    /// Post a session command to the mailbox and ping the host. Off the typing hot
+    /// path — only fired from an explicit mic tap.
+    private func postSessionCommand(_ cmd: SessionCommand, now: Date) {
+        guard let session else { return }
+        try? session.commandMailbox.post(cmd, now: now)
+        // A best-effort Darwin ping wakes the host; the mailbox is the truth.
+        SessionDarwinObserver(name: SessionDarwinNames.command).post()
+    }
+
+    /// Start the 250 ms partial poll (idempotent). Runs only while capturing.
+    private func startLivePartialLoop() {
+        guard session != nil, partialPollTimer == nil else { return }
+        // Drain whatever is already there right away.
+        pumpLivePartial()
+        partialPollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self, self.isVisible else { return }
+            self.pumpLivePartial()
+        }
+    }
+
+    private func stopLivePartialLoop() {
+        partialPollTimer?.invalidate()
+        partialPollTimer = nil
+        partialRender.reset()
+    }
+
+    /// Read the latest `LivePartial` and render it through the pure model. NEVER
+    /// renders into a secure field — the model's suppression is decided before any
+    /// edit, and the final falls back to the WP5 pending-transcript path there.
+    private func pumpLivePartial() {
+        guard let session,
+              let partial = (try? session.partialStore.read()).flatMap({ $0 }) else { return }
+
+        let decision = partialRender.apply(partial, isSecureField: sink.isSecureField)
+        switch decision {
+        case .ignore:
+            break
+        case .edit(let deleteBackward, let insert):
+            if deleteBackward > 0 { sink.deleteBackward(deleteBackward) }
+            if !insert.isEmpty { sink.insert(insert) }
+            if partial.isFinal {
+                // The final settled this capture; re-arm autocap against the new caret.
+                applyAutocapFromContext()
+                // The live final IS the insertion for this capture — retire the WP5
+                // pending transcript (published under the same id, §6.8) so the
+                // floor flow can't insert a second copy once the session disarms.
+                // Suppressed (secure-field) captures never reach this branch and
+                // keep their pending for the WP5 path.
+                _ = try? handoff?.store.consume(id: partial.captureID, now: Date())
+            }
+        }
     }
 
     private func performInsert(id: UUID) {
@@ -422,7 +590,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     // MARK: - Capture-state poll
 
     private func startCaptureStatePoll() {
-        guard handoff != nil, captureStatePollTimer == nil else { return }
+        guard handoff != nil || session != nil, captureStatePollTimer == nil else { return }
         captureStatePollTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
             guard let self, self.isVisible else { return }
             self.refreshMicKey(trigger: .captureStatePoll)
