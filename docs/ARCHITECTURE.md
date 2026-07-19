@@ -571,6 +571,22 @@ Driver notes (binding intent, not signatures):
   `isSecureField`; the final falls back to the WP5 pending-transcript path if
   live rendering was suppressed. With Full Access off, session features are
   invisible (D8's explainer unchanged) [C2, C8].
+  - **Status transport (WP10c):** the keyboard reads the host's `SessionStatus`
+    through `SessionStatusReading` — file conformer `AppGroupSessionStatusReader`
+    reads `session/status.json` (a JSON-encoded `SessionStatus`) in the same
+    `session/` App Group dir as the command/partial stores; `SessionEnvironment`
+    exposes it as `statusReader`. Reader-only: the host (WP10b `SessionHolder`)
+    OWNS writes to `status.json` (atomic replace, heartbeat ≥ 1/15 s). A missing
+    file reads as `.off`, so the mic key is exactly the floor flow until the host
+    wires status. `InMemorySessionStatusReader` is the test double.
+  - **Live-partial render loop (WP10c):** `LivePartialRenderModel` (KeyboardCore,
+    pure) tracks only the last-rendered string per `captureID` and turns each
+    `LivePartial` into a `LiveInsertDiffer` edit — ignoring `seq` regressions,
+    resetting on a `captureID` switch, deciding `isSecureField` suppression before
+    any edit, and clearing tracking on the final swap. The shell drives it from a
+    250 ms `LivePartialStore` poll + a `SessionDarwinObserver` on
+    `SessionDarwinNames.partial`, running ONLY while capturing (never on the typing
+    hot path). Kept tiny for the keyboard jetsam ceiling: no partial history.
 - **Arming UX (host):** a minimal full-screen "Session on — swipe back to
   your app" state (post-iOS-26.4 there is NO sanctioned auto-return; the
   manual swipe-back is what the market leader ships too). Settings gains the
